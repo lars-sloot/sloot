@@ -6,12 +6,10 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const admin = createAdminClient();
-  const { count, error } = await admin
-    .from("profiles")
-    .select("id", { count: "exact", head: true });
+  const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1 });
 
   if (error) throw new Error("De registratiestatus kon niet worden gecontroleerd.");
-  if ((count ?? 0) > 0) redirect("/auth/login");
+  if (data.users.length > 0) redirect("/auth/login");
 
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
