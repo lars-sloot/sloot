@@ -1,9 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { createUser, updateUser } from "@/app/actions/users";
 import { UserPlus } from "lucide-react";
+import { redirect } from "next/navigation";
 
 export default async function UsersPage() {
   const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getClaims();
+  const { data: currentProfile } = await supabase.from("profiles").select("role").eq("id", auth?.claims?.sub || "").maybeSingle();
+  if (currentProfile?.role !== "admin") redirect("/protected");
+
   const [{ data: profiles = [] }, { data: branches = [] }] = await Promise.all([
     supabase.from("profiles").select("id,full_name,role,active,user_branches(branch_id,branches(name))").order("full_name"),
     supabase.from("branches").select("id,name").eq("active", true).order("name"),
@@ -38,4 +43,3 @@ export default async function UsersPage() {
     </div>
   </div>;
 }
-
