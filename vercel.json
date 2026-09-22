@@ -1,6 +1,18 @@
 {
   "framework": "nextjs",
   "regions": ["fra1"],
+  "functions": {
+    "app/api/queues/process-delivery-note/route.ts": {
+      "maxDuration": 60,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "delivery-note-ai",
+          "retryAfterSeconds": 30
+        }
+      ]
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/photo-retention",

@@ -11,7 +11,7 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [branchId, setBranchId] = useState(branches[0]?.id || "");
-  const [state, setState] = useState<"idle" | "uploading" | "reading" | "done">("idle");
+  const [state, setState] = useState<"idle" | "uploading" | "queued">("idle");
   const [error, setError] = useState("");
 
   async function submit(event: React.FormEvent) {
@@ -25,15 +25,11 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
     const upload = await fetch("/api/delivery-notes", { method: "POST", body: form });
     const uploaded = await upload.json();
     if (!upload.ok) { setError(uploaded.error || "Uploaden mislukt."); setState("idle"); return; }
-    setState("reading");
-    const ai = await fetch("/api/ai/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delivery_note_id: uploaded.id }) });
-    const result = await ai.json();
-    if (!ai.ok) { setError(result.error || "De foto is opgeslagen, maar AI-uitlezen mislukte."); setState("idle"); router.refresh(); return; }
-    setState("done");
+    setState("queued");
     setFile(null);
     if (inputRef.current) inputRef.current.value = "";
     router.refresh();
-    setTimeout(() => setState("idle"), 2000);
+    setTimeout(() => setState("idle"), 3500);
   }
 
   return <form onSubmit={submit} className="rounded-2xl bg-[#173b2b] p-5 text-white">
@@ -44,7 +40,7 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
       <input ref={inputRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/heic,application/pdf" capture="environment" onChange={(e) => setFile(e.target.files?.[0] || null)}/>
     </label>
     {error && <p className="mt-3 rounded-lg bg-red-500/20 p-3 text-sm">{error}</p>}
-    <button disabled={!file || !branchId || state !== "idle"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 font-medium text-[#173b2b] disabled:opacity-50">{state === "idle" ? "Uploaden en uitlezen" : state === "done" ? "Pakbon verwerkt" : <><LoaderCircle className="animate-spin" size={18}/>{state === "uploading" ? "Uploaden…" : "AI leest de pakbon…"}</>}</button>
+    {state === "queued" && <p className="mt-3 rounded-lg bg-white/10 p-3 text-sm">Foto opgeslagen. De AI verwerkt de pakbon nu op de achtergrond.</p>}
+    <button disabled={!file || !branchId || state !== "idle"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 font-medium text-[#173b2b] disabled:opacity-50">{state === "idle" ? "Uploaden" : state === "queued" ? "In wachtrij geplaatst" : <><LoaderCircle className="animate-spin" size={18}/>Foto uploaden…</>}</button>
   </form>;
 }
-

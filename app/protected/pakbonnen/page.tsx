@@ -1,10 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-import { FileText, MapPin, PackageSearch } from "lucide-react";
+import Link from "next/link";
+import { FileText, MapPin, PackageSearch, Search } from "lucide-react";
 import { approveNote, deleteNotePhoto, rejectNote, updateNoteData } from "@/app/actions/notes";
 import { NotePhoto } from "@/components/sloot/note-photo";
+import { ProcessingRefresh } from "@/components/sloot/processing-refresh";
 
 const labels: Record<string, string> = {
-  processing: "AI verwerkt",
+  processing: "Wordt verwerkt",
   pending: "Te accorderen",
   approved: "Geaccordeerd",
   rejected: "Afgewezen",
@@ -17,24 +19,61 @@ function branchName(branches: unknown) {
   return "Onbekend";
 }
 
-export default async function NotesPage() {
+type NotesPageProps = {
+  searchParams: Promise<{ q?: string | string[]; branch?: string | string[]; status?: string | string[] }>;
+};
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] || "" : value || "";
+}
+
+export default async function NotesPage({ searchParams }: NotesPageProps) {
+  const params = await searchParams;
+  const query = firstParam(params.q).trim();
+  const selectedBranch = firstParam(params.branch);
+  const selectedStatus = firstParam(params.status);
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getClaims();
-  const [{ data: notes = [] }, { data: profile }] = await Promise.all([
-    supabase.from("delivery_notes").select("id,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
+  const [{ data: notes = [] }, { data: profile }, { data: branches = [] }] = await Promise.all([
+    supabase.from("delivery_notes").select("id,branch_id,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
     supabase.from("profiles").select("role").eq("id", auth?.claims?.sub || "").single(),
+    supabase.from("branches").select("id,name").eq("active", true).order("name"),
   ]);
 
   const safeNotes = notes ?? [];
-  const visiblePhotos = safeNotes.filter((note) => !note.deleted_at).map((note) => note.photo_path);
+  const normalizedQuery = query.toLocaleLowerCase("nl");
+  const filteredNotes = safeNotes.filter((note) => {
+    if (selectedBranch && note.branch_id !== selectedBranch) return false;
+    if (selectedStatus && note.status !== selectedStatus) return false;
+    if (!normalizedQuery) return true;
+    const searchable = [
+      note.supplier,
+      note.delivery_number,
+      note.article_summary,
+      ...note.delivery_note_items.flatMap((item) => [item.article_code, item.ean, item.description]),
+    ].filter(Boolean).join(" ").toLocaleLowerCase("nl");
+    return searchable.includes(normalizedQuery);
+  });
+  const visiblePhotos = filteredNotes.filter((note) => !note.deleted_at).map((note) => note.photo_path);
   const { data: signedPhotos = [] } = visiblePhotos.length
     ? await supabase.storage.from("delivery-notes").createSignedUrls(visiblePhotos, 3600)
     : { data: [] };
   const photoUrls = new Map(signedPhotos?.map((photo) => [photo.path, photo.signedUrl]) || []);
 
   return <div>
+    <ProcessingRefresh active={safeNotes.some((note) => note.status === "processing")}/>
     <p className="text-sm text-[#718078]">Overzicht</p><h1 className="mt-1 text-3xl font-semibold">Pakbonnen</h1><p className="mt-2 text-sm text-[#718078]">Bekijk de originele foto en controleer de herkende specificaties.</p>
-    <div className="mt-8 grid gap-4">{safeNotes.length ? safeNotes.map((n) => <article key={n.id} className="rounded-2xl border border-[#dce4dd] bg-white p-5">
+
+    <form method="get" className="mt-7 grid gap-3 rounded-2xl border border-[#dce4dd] bg-white p-4 lg:grid-cols-[minmax(240px,1fr)_220px_190px_auto_auto]">
+      <label className="relative"><span className="sr-only">Zoeken</span><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#718078]" size={18}/><input name="q" defaultValue={query} placeholder="Zoek leverancier, pakbon of artikel" className="w-full rounded-xl border border-[#d6ddd7] py-3 pl-10 pr-4 text-sm"/></label>
+      <label><span className="sr-only">Filiaal</span><select name="branch" defaultValue={selectedBranch} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-sm"><option value="">Alle filialen</option>{(branches ?? []).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+      <label><span className="sr-only">Status</span><select name="status" defaultValue={selectedStatus} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-sm"><option value="">Alle statussen</option><option value="processing">Wordt verwerkt</option><option value="pending">Te accorderen</option><option value="approved">Geaccordeerd</option><option value="rejected">Afgewezen</option><option value="error">Fout</option></select></label>
+      <button className="rounded-xl bg-[#173b2b] px-5 py-3 text-sm font-medium text-white">Filteren</button>
+      <Link href="/protected/pakbonnen" className="grid place-items-center rounded-xl border border-[#d6ddd7] px-4 py-3 text-sm font-medium text-[#435148]">Wissen</Link>
+    </form>
+    <p className="mt-3 text-sm text-[#718078]">{filteredNotes.length} {filteredNotes.length === 1 ? "pakbon" : "pakbonnen"} gevonden</p>
+
+    <div className="mt-5 grid gap-4">{filteredNotes.length ? filteredNotes.map((n) => <article key={n.id} className="rounded-2xl border border-[#dce4dd] bg-white p-5">
       <div className="grid gap-4 md:grid-cols-[1.2fr_.8fr_auto]">
         <div><p className="font-semibold">{n.supplier || "Wordt herkend"}</p><p className="mt-1 text-sm text-[#718078]">{n.delivery_number || "Geen nummer"} · {n.delivery_date || "Datum onbekend"}</p><p className="mt-2 flex items-center gap-1.5 text-xs text-[#8a948d]"><MapPin size={13}/>{branchName(n.branches)}</p></div>
         <div><p className="text-sm text-[#667168]">{n.article_summary || "Artikelen worden herkend"}</p><p className="mt-1 text-xs text-[#8a948d]">{n.delivery_note_items?.length || 0} artikelregels</p></div>
@@ -69,6 +108,6 @@ export default async function NotesPage() {
         <form action={rejectNote} className="flex gap-2"><input type="hidden" name="id" value={n.id}/><input name="reason" required placeholder="Reden van afwijzing" className="min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm"/><button className="rounded-xl border border-red-200 px-5 py-3 text-sm font-medium text-red-700">Afwijzen</button></form>
       </div>}
       {profile?.role === "admin" && <form action={deleteNotePhoto} className="mt-4 border-t pt-4"><input type="hidden" name="id" value={n.id}/><button className="text-sm text-red-700 underline underline-offset-4">Foto handmatig verwijderen</button></form>}
-    </article>) : <div className="grid place-items-center rounded-2xl border border-[#dce4dd] bg-white p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Er zijn nog geen pakbonnen opgeslagen.</p></div>}</div>
+    </article>) : <div className="grid place-items-center rounded-2xl border border-[#dce4dd] bg-white p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Geen pakbonnen gevonden met deze filters.</p></div>}</div>
   </div>;
 }

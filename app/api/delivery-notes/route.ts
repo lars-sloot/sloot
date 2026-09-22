@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { send } from "@vercel/queue";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -53,6 +54,16 @@ export async function POST(request: Request) {
     after_data: { branch_id: branchId, photo_path: path },
   });
 
-  return NextResponse.json({ id: note.id }, { status: 201 });
+  try {
+    const { messageId } = await send("delivery-note-ai", { noteId: note.id, actorId: userId }, {
+      idempotencyKey: `delivery-note-${note.id}`,
+      retentionSeconds: 604800,
+      region: "fra1",
+    });
+    return NextResponse.json({ id: note.id, queued: true, message_id: messageId }, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await admin.from("delivery_notes").update({ status: "error", ai_result: { error: `Queue: ${message.slice(0, 900)}` } }).eq("id", note.id);
+    return NextResponse.json({ id: note.id, queued: false, error: "De foto is opgeslagen, maar kon niet in de AI-wachtrij worden geplaatst." }, { status: 503 });
+  }
 }
-
