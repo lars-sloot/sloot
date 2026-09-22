@@ -56,20 +56,81 @@ export async function deleteNotePhoto(formData: FormData) {
   revalidatePath("/protected/pakbonnen");
 }
 
-export async function updateNoteData(formData: FormData) {
-  const { supabase, userId, profile } = await context();
-  const id = String(formData.get("id") || "");
-  const { data: before } = await supabase.from("delivery_notes").select("supplier,delivery_number,delivery_date,article_summary").eq("id", id).single();
-  if (!before) throw new Error("Pakbon niet gevonden.");
-  const after = {
-    supplier: String(formData.get("supplier") || "").trim() || null,
-    delivery_number: String(formData.get("delivery_number") || "").trim() || null,
-    delivery_date: String(formData.get("delivery_date") || "").trim() || null,
-    article_summary: String(formData.get("article_summary") || "").trim() || null,
-    updated_at: new Date().toISOString(),
-  };
-  const { error } = await supabase.from("delivery_notes").update(after).eq("id", id);
-  if (error) throw error;
-  await supabase.from("audit_logs").insert({ organization_id: profile.organization_id, actor_id: userId, action: "delivery_note.updated", entity_type: "delivery_note", entity_id: id, before_data: before, after_data: after });
-  revalidatePath("/protected/pakbonnen");
+export type UpdateNoteState = {
+  status: "idle" | "success" | "error";
+  message: string;
+};
+
+export async function updateNoteData(
+  _previousState: UpdateNoteState,
+  formData: FormData,
+): Promise<UpdateNoteState> {
+  try {
+    const { supabase, userId, profile } = await context();
+    const id = String(formData.get("id") || "");
+    const branchId = String(formData.get("branch_id") || "");
+    if (!id || !branchId) return { status: "error", message: "Kies een geldig filiaal." };
+
+    const { data: before, error: readError } = await supabase
+      .from("delivery_notes")
+      .select("supplier,delivery_number,delivery_date,article_summary,branch_id")
+      .eq("id", id)
+      .single();
+    if (readError || !before) return { status: "error", message: "Pakbon niet gevonden of niet toegankelijk." };
+
+    const { data: targetBranch } = await supabase
+      .from("branches")
+      .select("id,organization_id")
+      .eq("id", branchId)
+      .eq("organization_id", profile.organization_id)
+      .eq("active", true)
+      .maybeSingle();
+    if (!targetBranch) return { status: "error", message: "Dit filiaal is niet beschikbaar." };
+
+    if (profile.role !== "admin") {
+      const { data: assignment } = await supabase
+        .from("user_branches")
+        .select("branch_id")
+        .eq("user_id", userId)
+        .eq("branch_id", branchId)
+        .maybeSingle();
+      if (!assignment) return { status: "error", message: "Je hebt geen toegang tot dit filiaal." };
+    }
+
+    const after = {
+      supplier: String(formData.get("supplier") || "").trim() || null,
+      delivery_number: String(formData.get("delivery_number") || "").trim() || null,
+      delivery_date: String(formData.get("delivery_date") || "").trim() || null,
+      article_summary: String(formData.get("article_summary") || "").trim() || null,
+      branch_id: branchId,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: updated, error } = await supabase
+      .from("delivery_notes")
+      .update(after)
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+    if (error || !updated) {
+      console.error("delivery_note.update failed", { id, code: error?.code, message: error?.message });
+      return { status: "error", message: error?.message || "De wijzigingen konden niet worden opgeslagen." };
+    }
+
+    const { error: auditError } = await supabase.from("audit_logs").insert({
+      organization_id: profile.organization_id,
+      actor_id: userId,
+      action: "delivery_note.updated",
+      entity_type: "delivery_note",
+      entity_id: id,
+      before_data: before,
+      after_data: after,
+    });
+    if (auditError) console.error("delivery_note.update audit failed", { id, code: auditError.code, message: auditError.message });
+    revalidatePath("/protected/pakbonnen");
+    revalidatePath("/protected");
+    return { status: "success", message: "Wijzigingen zijn opgeslagen." };
+  } catch (error) {
+    console.error("delivery_note.update unexpected failure", error);
+    return { status: "error", message: error instanceof Error ? error.message : "Opslaan is mislukt." };
+  }
 }
