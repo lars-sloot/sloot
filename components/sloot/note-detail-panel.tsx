@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useActionState } from "react";
 import { Check, PackageSearch, Save, Trash2, X } from "lucide-react";
-import { approveNote, deleteNotePhoto, rejectNote, updateNoteData, type UpdateNoteState } from "@/app/actions/notes";
+import { approveNote, deleteNote, deleteNotePhoto, rejectNote, updateNoteData, type DeleteNoteState, type UpdateNoteState } from "@/app/actions/notes";
 import { NotePhoto } from "@/components/sloot/note-photo";
 
 type Branch = { id: string; name: string };
@@ -11,9 +11,11 @@ type NoteItem = { id: string; line_number: number; article_code: string | null; 
 type Note = { id: string; branch_id: string; supplier: string | null; delivery_number: string | null; delivery_date: string | null; status: string; article_summary: string | null; rejection_reason: string | null; photo_path: string; deleted_at: string | null; ai_confidence: number | null; delivery_note_items: NoteItem[] };
 
 const initialState: UpdateNoteState = { status: "idle", message: "" };
+const initialDeleteState: DeleteNoteState = { status: "idle", message: "" };
 
 export function NoteDetailPanel({ note, branches, photoUrl, closeHref, isAdmin }: { note: Note; branches: Branch[]; photoUrl: string | null; closeHref: string; isAdmin: boolean }) {
   const [state, formAction, pending] = useActionState(updateNoteData, initialState);
+  const [deleteState, deleteAction, deleting] = useActionState(deleteNote, initialDeleteState);
   const items = [...(note.delivery_note_items || [])].sort((a, b) => a.line_number - b.line_number);
 
   return <>
@@ -45,7 +47,17 @@ export function NoteDetailPanel({ note, branches, photoUrl, closeHref, isAdmin }
 
         {note.rejection_reason && <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-800"><strong>Reden afwijzing:</strong> {note.rejection_reason}</p>}
         {note.status === "pending" && <div className="mt-6 grid gap-3 border-t border-[#dce4dd] pt-6 sm:grid-cols-[auto_1fr]"><form action={approveNote}><input type="hidden" name="id" value={note.id}/><button className="w-full rounded-xl bg-[#173b2b] px-5 py-3 text-sm font-medium text-white">Pakbon accorderen</button></form><form action={rejectNote} className="flex min-w-0 gap-2"><input type="hidden" name="id" value={note.id}/><input name="reason" required placeholder="Reden van afwijzing" className="min-w-0 flex-1 rounded-xl border border-[#e8caca] px-3 py-2.5 text-sm"/><button className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-medium text-red-700">Afwijzen</button></form></div>}
-        {isAdmin && <form action={deleteNotePhoto} className="mt-5"><input type="hidden" name="id" value={note.id}/><button className="inline-flex items-center gap-2 text-sm text-red-700 underline underline-offset-4"><Trash2 size={15}/>Foto handmatig verwijderen</button></form>}
+        {isAdmin && <div className="mt-6 rounded-2xl border border-red-100 bg-red-50/60 p-4">
+          <p className="text-sm font-semibold text-red-900">Beheerderacties</p>
+          <div className="mt-3 flex flex-wrap items-center gap-4">
+            <form action={deleteNotePhoto}><input type="hidden" name="id" value={note.id}/><button className="text-sm text-red-700 underline underline-offset-4">Alleen foto verwijderen</button></form>
+            <form action={deleteAction} onSubmit={(event) => { if (!window.confirm("Weet je zeker dat je deze pakbon inclusief foto en artikelregels permanent wilt verwijderen?")) event.preventDefault(); }}>
+              <input type="hidden" name="id" value={note.id}/>
+              <button disabled={deleting} className="inline-flex items-center gap-2 rounded-xl bg-red-700 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"><Trash2 size={15}/>{deleting ? "Verwijderen…" : "Pakbon verwijderen"}</button>
+            </form>
+          </div>
+          {deleteState.message && <p role="status" className="mt-3 text-sm text-red-700">{deleteState.message}</p>}
+        </div>}
       </div>
     </aside>
   </>;

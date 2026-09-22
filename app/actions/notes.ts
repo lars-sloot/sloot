@@ -56,6 +56,68 @@ export async function deleteNotePhoto(formData: FormData) {
   revalidatePath("/protected/pakbonnen");
 }
 
+export type DeleteNoteState = {
+  status: "idle" | "error";
+  message: string;
+};
+
+export async function deleteNote(
+  _previousState: DeleteNoteState,
+  formData: FormData,
+): Promise<DeleteNoteState> {
+  try {
+    const { supabase, userId, profile } = await context();
+    if (profile.role !== "admin") return { status: "error", message: "Alleen een beheerder mag een pakbon verwijderen." };
+
+    const id = String(formData.get("id") || "");
+    if (!id) return { status: "error", message: "Pakbon ontbreekt." };
+    const { data: note, error: readError } = await supabase
+      .from("delivery_notes")
+      .select("id,branch_id,supplier,delivery_number,delivery_date,status,article_summary,photo_path,deleted_at")
+      .eq("id", id)
+      .single();
+    if (readError || !note) return { status: "error", message: "Pakbon niet gevonden of al verwijderd." };
+
+    if (!note.deleted_at) {
+      const { error: storageError } = await supabase.storage.from("delivery-notes").remove([note.photo_path]);
+      if (storageError) {
+        console.error("delivery_note.delete storage failed", { id, code: storageError.name, message: storageError.message });
+        return { status: "error", message: "De foto kon niet worden verwijderd. De pakbon is behouden." };
+      }
+    }
+
+    const { data: deleted, error: deleteError } = await supabase
+      .from("delivery_notes")
+      .delete()
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+    if (deleteError || !deleted) {
+      console.error("delivery_note.delete failed", { id, code: deleteError?.code, message: deleteError?.message });
+      return { status: "error", message: "De pakbon kon niet worden verwijderd." };
+    }
+
+    const { error: auditError } = await supabase.from("audit_logs").insert({
+      organization_id: profile.organization_id,
+      actor_id: userId,
+      action: "delivery_note.deleted",
+      entity_type: "delivery_note",
+      entity_id: id,
+      before_data: note,
+      after_data: { deleted: true },
+    });
+    if (auditError) console.error("delivery_note.delete audit failed", { id, code: auditError.code, message: auditError.message });
+
+    revalidatePath("/protected");
+    revalidatePath("/protected/pakbonnen");
+    revalidatePath("/protected/activiteiten");
+    return { status: "idle", message: "" };
+  } catch (error) {
+    console.error("delivery_note.delete unexpected failure", error);
+    return { status: "error", message: error instanceof Error ? error.message : "Verwijderen is mislukt." };
+  }
+}
+
 export type UpdateNoteState = {
   status: "idle" | "success" | "error";
   message: string;

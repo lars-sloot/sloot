@@ -9,6 +9,7 @@ const actionLabels: Record<string,string> = {
   "delivery_note.rejected": "Pakbon afgewezen",
   "delivery_note.updated": "Pakbongegevens aangepast",
   "delivery_note.photo_deleted": "Foto handmatig verwijderd",
+  "delivery_note.deleted": "Pakbon verwijderd",
   "delivery_note.photo_retention_deleted": "Foto na bewaartermijn verwijderd",
   "user.created": "Gebruiker aangemaakt",
   "user.updated": "Gebruiker aangepast",
