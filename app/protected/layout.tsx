@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { AuthButton } from "@/components/auth-button";
-import { Building2, FileText, LayoutDashboard, Users } from "lucide-react";
+import { Activity, Building2, FileText, LayoutDashboard, Users } from "lucide-react";
 
 const links = [
   ["/protected", "Overzicht", LayoutDashboard],
   ["/protected/pakbonnen", "Pakbonnen", FileText],
   ["/protected/gebruikers", "Gebruikers", Users],
   ["/protected/filialen", "Filialen", Building2],
+  ["/protected/activiteiten", "Activiteiten", Activity],
 ] as const;
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -23,4 +24,3 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     </div>
   );
 }
-
