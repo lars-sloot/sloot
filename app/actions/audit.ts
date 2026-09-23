@@ -31,6 +31,13 @@ export async function undoAudit(formData: FormData) {
       }),
       updated_at: new Date().toISOString(),
     }).eq("id", log.entity_id);
+  } else if (log.entity_type === "delivery_note_item" && log.action === "delivery_note.item_updated") {
+    await supabase.from("delivery_note_items").update({
+      description: before.description,
+      quantity: before.quantity,
+    }).eq("id", log.entity_id);
+  } else if (log.entity_type === "delivery_note_item" && log.action === "delivery_note.item_created") {
+    await supabase.from("delivery_note_items").delete().eq("id", log.entity_id);
   } else if (log.entity_type === "profile" && log.action === "user.updated") {
     await supabase.from("profiles").update({ full_name: before.full_name, role: before.role, active: before.active }).eq("id", log.entity_id);
     await supabase.from("user_branches").delete().eq("user_id", log.entity_id);

@@ -123,6 +123,92 @@ export type UpdateNoteState = {
   message: string;
 };
 
+export type NoteItemState = {
+  status: "idle" | "success" | "error";
+  message: string;
+};
+
+function parseQuantity(value: FormDataEntryValue | null) {
+  const quantity = Number(String(value || "").trim().replace(",", "."));
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+}
+
+export async function updateNoteItem(
+  _previousState: NoteItemState,
+  formData: FormData,
+): Promise<NoteItemState> {
+  try {
+    const { supabase, userId, profile } = await context();
+    const id = String(formData.get("item_id") || "");
+    const noteId = String(formData.get("note_id") || "");
+    const description = String(formData.get("description") || "").trim();
+    const quantity = parseQuantity(formData.get("quantity"));
+    if (!id || !noteId || !description || quantity === null) return { status: "error", message: "Vul een omschrijving en een aantal groter dan nul in." };
+
+    const { data: before, error: readError } = await supabase
+      .from("delivery_note_items")
+      .select("id,delivery_note_id,line_number,article_code,ean,description,quantity,unit")
+      .eq("id", id)
+      .eq("delivery_note_id", noteId)
+      .single();
+    if (readError || !before) return { status: "error", message: "Deze artikelregel is niet gevonden of niet toegankelijk." };
+
+    const after = { description: description.slice(0, 500), quantity };
+    const { data: updated, error } = await supabase.from("delivery_note_items").update(after).eq("id", id).eq("delivery_note_id", noteId).select("id").maybeSingle();
+    if (error || !updated) return { status: "error", message: error?.message || "De artikelregel kon niet worden opgeslagen." };
+
+    const { error: auditError } = await supabase.from("audit_logs").insert({
+      organization_id: profile.organization_id,
+      actor_id: userId,
+      action: "delivery_note.item_updated",
+      entity_type: "delivery_note_item",
+      entity_id: id,
+      before_data: before,
+      after_data: { ...before, ...after },
+    });
+    if (auditError) console.error("delivery_note.item_updated audit failed", { id, code: auditError.code, message: auditError.message });
+    revalidatePath("/protected/pakbonnen");
+    return { status: "success", message: "Regel opgeslagen." };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "Opslaan is mislukt." };
+  }
+}
+
+export async function createNoteItem(
+  _previousState: NoteItemState,
+  formData: FormData,
+): Promise<NoteItemState> {
+  try {
+    const { supabase, userId, profile } = await context();
+    const noteId = String(formData.get("note_id") || "");
+    const description = String(formData.get("description") || "").trim();
+    const quantity = parseQuantity(formData.get("quantity"));
+    if (!noteId || !description || quantity === null) return { status: "error", message: "Vul een omschrijving en een aantal groter dan nul in." };
+
+    const { data: note } = await supabase.from("delivery_notes").select("id").eq("id", noteId).single();
+    if (!note) return { status: "error", message: "Deze pakbon is niet gevonden of niet toegankelijk." };
+    const { data: existing = [] } = await supabase.from("delivery_note_items").select("line_number").eq("delivery_note_id", noteId);
+    const lineNumber = Math.max(0, ...(existing ?? []).map((item) => item.line_number)) + 1;
+    const item = { delivery_note_id: noteId, line_number: lineNumber, description: description.slice(0, 500), quantity, unit: "STK" };
+    const { data: created, error } = await supabase.from("delivery_note_items").insert(item).select("id").single();
+    if (error || !created) return { status: "error", message: error?.message || "De artikelregel kon niet worden toegevoegd." };
+
+    const { error: auditError } = await supabase.from("audit_logs").insert({
+      organization_id: profile.organization_id,
+      actor_id: userId,
+      action: "delivery_note.item_created",
+      entity_type: "delivery_note_item",
+      entity_id: created.id,
+      after_data: { id: created.id, ...item },
+    });
+    if (auditError) console.error("delivery_note.item_created audit failed", { id: created.id, code: auditError.code, message: auditError.message });
+    revalidatePath("/protected/pakbonnen");
+    return { status: "success", message: "Nieuwe regel toegevoegd." };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "Toevoegen is mislukt." };
+  }
+}
+
 export async function updateNoteData(
   _previousState: UpdateNoteState,
   formData: FormData,

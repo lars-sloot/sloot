@@ -5,6 +5,7 @@ import { useActionState, useEffect } from "react";
 import { Check, PackageSearch, Save, Trash2, X } from "lucide-react";
 import { approveNote, deleteNote, deleteNotePhoto, rejectNote, updateNoteData, type DeleteNoteState, type UpdateNoteState } from "@/app/actions/notes";
 import { NotePhoto } from "@/components/sloot/note-photo";
+import { NoteItemsEditor } from "@/components/sloot/note-items-editor";
 
 type Branch = { id: string; name: string };
 type NoteItem = { id: string; line_number: number; article_code: string | null; ean: string | null; description: string | null; quantity: number | null; unit: string | null };
@@ -55,7 +56,7 @@ export function NoteDetailPanel({ note, uploaderName, decisionActorName, branche
 
         <section className="mt-6 overflow-hidden rounded-2xl border border-[#dce4dd] bg-white">
           <div className="flex items-center justify-between gap-3 border-b bg-[#f7f8f6] px-5 py-4"><h3 className="flex items-center gap-2 font-semibold"><PackageSearch size={18}/>Artikelen</h3><span className="text-xs text-[#718078]">{items.length} {items.length === 1 ? "regel" : "regels"}</span></div>
-          {items.length ? <div className="divide-y divide-[#edf0ed]">{items.map((item) => <div key={item.id} className="grid gap-1 px-5 py-4 text-sm sm:grid-cols-[1fr_auto]"><div><p className="font-medium">{item.description || item.article_code || "Onbekend artikel"}</p><p className="mt-1 text-xs text-[#718078]">{[item.article_code, item.ean].filter(Boolean).join(" · ") || `Regel ${item.line_number}`}</p></div><p className="text-[#526057] sm:text-right">{item.quantity ?? "—"}{item.unit ? ` ${item.unit}` : ""}</p></div>)}</div> : <p className="p-5 text-sm text-[#718078]">Er zijn nog geen artikelregels herkend.</p>}
+          <NoteItemsEditor noteId={note.id} items={items}/>
         </section>
 
         {note.rejection_reason && <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-800"><strong>Reden afwijzing:</strong> {note.rejection_reason}</p>}
