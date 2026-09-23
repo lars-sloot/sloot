@@ -107,8 +107,27 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
     </div>
 
     <p className="mt-4 text-sm text-[#718078]">{filteredNotes.length} {filteredNotes.length === 1 ? "pakbon" : "pakbonnen"} gevonden</p>
-    <div className="mt-4 overflow-hidden rounded-2xl border border-[#dce4dd] bg-white shadow-[0_1px_2px_rgba(16,42,32,0.03)]">
-      {filteredNotes.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
+    <div className="mt-4 min-w-0 overflow-hidden rounded-2xl border border-[#dce4dd] bg-white shadow-[0_1px_2px_rgba(16,42,32,0.03)]">
+      {filteredNotes.length ? <>
+        <div className="divide-y divide-[#e8ece8] md:hidden">{filteredNotes.map((note) => {
+          const rowHref = hrefWith({ note: note.id });
+          return <Link key={note.id} href={rowHref} className="block min-w-0 p-4 transition-colors hover:bg-[#fafcfa] active:bg-[#f2f5f2]">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-[#17231d]">{note.delivery_number || "Nog geen nummer"}</p>
+                <p className="mt-1 break-words text-sm text-[#33443a]">{note.supplier || "Wordt herkend"}</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${statusStyles[note.status] || "bg-slate-100 text-slate-700"}`}>{labels[note.status] || note.status}</span>
+            </div>
+            <div className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#667168]">
+              <span className="truncate">{branchName(note.branches)}</span>
+              <span className="text-right">{formatDate(note.delivery_date)}</span>
+              <span>{note.delivery_note_items?.length || 0} artikelen</span>
+              <span className="inline-flex items-center justify-end gap-1 font-medium text-[#173b2b]">Bekijken <MoreHorizontal size={16}/></span>
+            </div>
+          </Link>;
+        })}</div>
+        <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-left text-sm">
         <thead className="border-b border-[#dce4dd] bg-[#f7f8f7] text-[11px] uppercase tracking-[0.08em] text-[#718078]"><tr><th className="px-5 py-4 font-semibold">Pakbon</th><th className="px-5 py-4 font-semibold">Leverancier</th><th className="px-5 py-4 font-semibold">Filiaal</th><th className="px-5 py-4 font-semibold">Datum</th><th className="px-5 py-4 font-semibold">Artikelen</th><th className="px-5 py-4 font-semibold">Status</th><th className="w-16 px-5 py-4"><span className="sr-only">Openen</span></th></tr></thead>
         <tbody className="divide-y divide-[#e8ece8]">{filteredNotes.map((note) => {
           const rowHref = hrefWith({ note: note.id });
@@ -122,7 +141,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
             <td className="px-5 py-4 text-right"><Link href={rowHref} aria-label={`Pakbon ${note.delivery_number || note.id} openen`} className="inline-grid h-9 w-9 place-items-center rounded-full text-[#718078] hover:bg-[#edf1ed] hover:text-[#173b2b]"><MoreHorizontal size={20}/></Link></td>
           </tr>;
         })}</tbody>
-      </table></div> : <div className="grid place-items-center p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Geen pakbonnen gevonden met deze filters.</p><Link href="/protected/pakbonnen" className="mt-3 text-sm font-medium text-[#173b2b] underline underline-offset-4">Filters wissen</Link></div>}
+      </table></div></> : <div className="grid place-items-center p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Geen pakbonnen gevonden met deze filters.</p><Link href="/protected/pakbonnen" className="mt-3 text-sm font-medium text-[#173b2b] underline underline-offset-4">Filters wissen</Link></div>}
     </div>
     {selectedNote && <NoteDetailPanel note={selectedNote} branches={editableBranches} photoUrl={photoUrl} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
   </div>;
