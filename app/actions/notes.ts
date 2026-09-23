@@ -129,8 +129,8 @@ export type NoteItemState = {
 };
 
 function parseQuantity(value: FormDataEntryValue | null) {
-  const quantity = Number(String(value || "").trim().replace(",", "."));
-  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+  const quantity = Number(String(value || "").trim());
+  return Number.isInteger(quantity) && quantity >= 1 ? quantity : null;
 }
 
 export async function updateNoteItem(
