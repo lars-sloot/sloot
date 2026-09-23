@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Camera, FileText, MoreHorizontal, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NoteDetailPanel } from "@/components/sloot/note-detail-panel";
 import { ProcessingRefresh } from "@/components/sloot/processing-refresh";
 
@@ -35,6 +36,10 @@ function formatDate(date: string | null) {
   return new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
 }
 
+function formatUploadedAt(date: string) {
+  return new Intl.DateTimeFormat("nl-NL", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Amsterdam" }).format(new Date(date));
+}
+
 type NotesPageProps = {
   searchParams: Promise<{ q?: string | string[]; branch?: string | string[]; status?: string | string[]; note?: string | string[] }>;
 };
@@ -50,13 +55,20 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const userId = auth?.claims?.sub || "";
 
   const [{ data: notes = [] }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
-    supabase.from("delivery_notes").select("id,branch_id,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
+    supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
     supabase.from("profiles").select("role").eq("id", userId).single(),
     supabase.from("branches").select("id,name").eq("active", true).order("name"),
     supabase.from("user_branches").select("branch_id").eq("user_id", userId),
   ]);
 
   const safeNotes = notes ?? [];
+  const uploaderIds = [...new Set(safeNotes.map((note) => note.uploaded_by).filter(Boolean))];
+  const uploaderNames = new Map<string, string>();
+  if (uploaderIds.length) {
+    const admin = createAdminClient();
+    const { data: uploaders = [] } = await admin.from("profiles").select("id,full_name").in("id", uploaderIds);
+    for (const uploader of uploaders ?? []) uploaderNames.set(uploader.id, uploader.full_name || "Onbekende gebruiker");
+  }
   const assignmentIds = new Set((assignments ?? []).map((assignment) => assignment.branch_id));
   const editableBranches = profile?.role === "admin" ? (allBranches ?? []) : (allBranches ?? []).filter((branch) => assignmentIds.has(branch.id));
   const normalizedQuery = query.toLocaleLowerCase("nl");
@@ -125,10 +137,11 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
               <span>{note.delivery_note_items?.length || 0} artikelen</span>
               <span className="inline-flex items-center justify-end gap-1 font-medium text-[#173b2b]">Bekijken <MoreHorizontal size={16}/></span>
             </div>
+            <p className="mt-2 truncate text-xs text-[#819087]">Geüpload door {uploaderNames.get(note.uploaded_by) || "Onbekende gebruiker"} · {formatUploadedAt(note.created_at)}</p>
           </Link>;
         })}</div>
         <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="border-b border-[#dce4dd] bg-[#f7f8f7] text-[11px] uppercase tracking-[0.08em] text-[#718078]"><tr><th className="px-5 py-4 font-semibold">Pakbon</th><th className="px-5 py-4 font-semibold">Leverancier</th><th className="px-5 py-4 font-semibold">Filiaal</th><th className="px-5 py-4 font-semibold">Datum</th><th className="px-5 py-4 font-semibold">Artikelen</th><th className="px-5 py-4 font-semibold">Status</th><th className="w-16 px-5 py-4"><span className="sr-only">Openen</span></th></tr></thead>
+        <thead className="border-b border-[#dce4dd] bg-[#f7f8f7] text-[11px] uppercase tracking-[0.08em] text-[#718078]"><tr><th className="px-5 py-4 font-semibold">Pakbon</th><th className="px-5 py-4 font-semibold">Leverancier</th><th className="px-5 py-4 font-semibold">Filiaal</th><th className="px-5 py-4 font-semibold">Datum</th><th className="px-5 py-4 font-semibold">Geüpload</th><th className="px-5 py-4 font-semibold">Artikelen</th><th className="px-5 py-4 font-semibold">Status</th><th className="w-16 px-5 py-4"><span className="sr-only">Openen</span></th></tr></thead>
         <tbody className="divide-y divide-[#e8ece8]">{filteredNotes.map((note) => {
           const rowHref = hrefWith({ note: note.id });
           return <tr key={note.id} className="group hover:bg-[#fafcfa]">
@@ -136,6 +149,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
             <td className="px-5 py-4 text-[#33443a]"><Link href={rowHref} className="block">{note.supplier || "Wordt herkend"}</Link></td>
             <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{branchName(note.branches)}</Link></td>
             <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{formatDate(note.delivery_date)}</Link></td>
+            <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block"><span className="font-medium text-[#33443a]">{uploaderNames.get(note.uploaded_by) || "Onbekende gebruiker"}</span><span className="mt-0.5 block text-xs text-[#819087]">{formatUploadedAt(note.created_at)}</span></Link></td>
             <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{note.delivery_note_items?.length || 0}</Link></td>
             <td className="px-5 py-4"><Link href={rowHref} className={`inline-flex rounded-full px-3 py-1.5 text-xs font-medium ${statusStyles[note.status] || "bg-slate-100 text-slate-700"}`}>{labels[note.status] || note.status}</Link></td>
             <td className="px-5 py-4 text-right"><Link href={rowHref} aria-label={`Pakbon ${note.delivery_number || note.id} openen`} className="inline-grid h-9 w-9 place-items-center rounded-full text-[#718078] hover:bg-[#edf1ed] hover:text-[#173b2b]"><MoreHorizontal size={20}/></Link></td>
@@ -143,6 +157,6 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
         })}</tbody>
       </table></div></> : <div className="grid place-items-center p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Geen pakbonnen gevonden met deze filters.</p><Link href="/protected/pakbonnen" className="mt-3 text-sm font-medium text-[#173b2b] underline underline-offset-4">Filters wissen</Link></div>}
     </div>
-    {selectedNote && <NoteDetailPanel note={selectedNote} branches={editableBranches} photoUrl={photoUrl} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
+    {selectedNote && <NoteDetailPanel note={selectedNote} uploaderName={uploaderNames.get(selectedNote.uploaded_by) || "Onbekende gebruiker"} branches={editableBranches} photoUrl={photoUrl} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
   </div>;
 }

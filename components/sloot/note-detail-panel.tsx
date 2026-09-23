@@ -8,12 +8,12 @@ import { NotePhoto } from "@/components/sloot/note-photo";
 
 type Branch = { id: string; name: string };
 type NoteItem = { id: string; line_number: number; article_code: string | null; ean: string | null; description: string | null; quantity: number | null; unit: string | null };
-type Note = { id: string; branch_id: string; supplier: string | null; delivery_number: string | null; delivery_date: string | null; status: string; article_summary: string | null; rejection_reason: string | null; photo_path: string; deleted_at: string | null; ai_confidence: number | null; delivery_note_items: NoteItem[] };
+type Note = { id: string; branch_id: string; supplier: string | null; delivery_number: string | null; delivery_date: string | null; status: string; article_summary: string | null; rejection_reason: string | null; photo_path: string; deleted_at: string | null; ai_confidence: number | null; created_at: string; delivery_note_items: NoteItem[] };
 
 const initialState: UpdateNoteState = { status: "idle", message: "" };
 const initialDeleteState: DeleteNoteState = { status: "idle", message: "" };
 
-export function NoteDetailPanel({ note, branches, photoUrl, closeHref, isAdmin }: { note: Note; branches: Branch[]; photoUrl: string | null; closeHref: string; isAdmin: boolean }) {
+export function NoteDetailPanel({ note, uploaderName, branches, photoUrl, closeHref, isAdmin }: { note: Note; uploaderName: string; branches: Branch[]; photoUrl: string | null; closeHref: string; isAdmin: boolean }) {
   const [state, formAction, pending] = useActionState(updateNoteData, initialState);
   const [deleteState, deleteAction, deleting] = useActionState(deleteNote, initialDeleteState);
   const items = [...(note.delivery_note_items || [])].sort((a, b) => a.line_number - b.line_number);
@@ -34,7 +34,7 @@ export function NoteDetailPanel({ note, branches, photoUrl, closeHref, isAdmin }
     <Link href={closeHref} aria-label="Detail sluiten" className="fixed inset-0 z-40 bg-[#102a20]/25 backdrop-blur-[1px]" />
     <aside className="fixed inset-y-0 left-0 right-0 z-50 flex min-w-0 max-w-full flex-col overflow-hidden bg-[#f8faf8] shadow-2xl sm:left-auto sm:w-full sm:max-w-[620px] sm:border-l sm:border-[#dce4dd]">
       <header className="flex items-start justify-between gap-4 border-b border-[#dce4dd] bg-white px-5 py-5 sm:px-7">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#819087]">Pakbon bekijken</p><h2 className="mt-1 text-2xl font-semibold text-[#17231d]">{note.delivery_number || "Nieuwe pakbon"}</h2><p className="mt-1 text-sm text-[#718078]">{note.supplier || "Leverancier wordt herkend"}</p></div>
+        <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#819087]">Pakbon bekijken</p><h2 className="mt-1 truncate text-2xl font-semibold text-[#17231d]">{note.delivery_number || "Nieuwe pakbon"}</h2><p className="mt-1 text-sm text-[#718078]">{note.supplier || "Leverancier wordt herkend"}</p><p className="mt-2 text-xs text-[#819087]">Geüpload door <span className="font-medium text-[#526057]">{uploaderName}</span> op {new Intl.DateTimeFormat("nl-NL", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Amsterdam" }).format(new Date(note.created_at))}</p></div>
         <Link href={closeHref} aria-label="Detail sluiten" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[#dce4dd] bg-white text-[#526057] hover:bg-[#f2f5f2]"><X size={19}/></Link>
       </header>
 
