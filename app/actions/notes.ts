@@ -209,6 +209,44 @@ export async function createNoteItem(
   }
 }
 
+export async function deleteNoteItem(
+  _previousState: NoteItemState,
+  formData: FormData,
+): Promise<NoteItemState> {
+  try {
+    const { supabase, userId, profile } = await context();
+    const id = String(formData.get("item_id") || "");
+    const noteId = String(formData.get("note_id") || "");
+    if (!id || !noteId) return { status: "error", message: "Artikelregel ontbreekt." };
+
+    const { data: before, error: readError } = await supabase
+      .from("delivery_note_items")
+      .select("id,delivery_note_id,line_number,article_code,ean,description,quantity,unit")
+      .eq("id", id)
+      .eq("delivery_note_id", noteId)
+      .single();
+    if (readError || !before) return { status: "error", message: "Deze artikelregel is niet gevonden of niet toegankelijk." };
+
+    const { data: deleted, error } = await supabase.from("delivery_note_items").delete().eq("id", id).eq("delivery_note_id", noteId).select("id").maybeSingle();
+    if (error || !deleted) return { status: "error", message: error?.message || "De artikelregel kon niet worden verwijderd." };
+
+    const { error: auditError } = await supabase.from("audit_logs").insert({
+      organization_id: profile.organization_id,
+      actor_id: userId,
+      action: "delivery_note.item_deleted",
+      entity_type: "delivery_note_item",
+      entity_id: id,
+      before_data: before,
+      after_data: { deleted: true, delivery_note_id: noteId },
+    });
+    if (auditError) console.error("delivery_note.item_deleted audit failed", { id, code: auditError.code, message: auditError.message });
+    revalidatePath("/protected/pakbonnen");
+    return { status: "success", message: "Regel verwijderd." };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "Verwijderen is mislukt." };
+  }
+}
+
 export async function updateNoteData(
   _previousState: UpdateNoteState,
   formData: FormData,

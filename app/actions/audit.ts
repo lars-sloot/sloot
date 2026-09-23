@@ -38,6 +38,25 @@ export async function undoAudit(formData: FormData) {
     }).eq("id", log.entity_id);
   } else if (log.entity_type === "delivery_note_item" && log.action === "delivery_note.item_created") {
     await supabase.from("delivery_note_items").delete().eq("id", log.entity_id);
+  } else if (log.entity_type === "delivery_note_item" && log.action === "delivery_note.item_deleted") {
+    const noteId = String(before.delivery_note_id || "");
+    const { data: existing = [] } = await supabase.from("delivery_note_items").select("line_number").eq("delivery_note_id", noteId);
+    const usedNumbers = new Set((existing ?? []).map((item) => item.line_number));
+    const originalLineNumber = Number(before.line_number);
+    const lineNumber = Number.isInteger(originalLineNumber) && !usedNumbers.has(originalLineNumber)
+      ? originalLineNumber
+      : Math.max(0, ...usedNumbers) + 1;
+    const { error } = await supabase.from("delivery_note_items").insert({
+      id: log.entity_id,
+      delivery_note_id: noteId,
+      line_number: lineNumber,
+      article_code: before.article_code,
+      ean: before.ean,
+      description: before.description,
+      quantity: before.quantity,
+      unit: before.unit,
+    });
+    if (error) throw error;
   } else if (log.entity_type === "profile" && log.action === "user.updated") {
     await supabase.from("profiles").update({ full_name: before.full_name, role: before.role, active: before.active }).eq("id", log.entity_id);
     await supabase.from("user_branches").delete().eq("user_id", log.entity_id);
