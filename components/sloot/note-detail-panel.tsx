@@ -8,12 +8,12 @@ import { NotePhoto } from "@/components/sloot/note-photo";
 
 type Branch = { id: string; name: string };
 type NoteItem = { id: string; line_number: number; article_code: string | null; ean: string | null; description: string | null; quantity: number | null; unit: string | null };
-type Note = { id: string; branch_id: string; supplier: string | null; delivery_number: string | null; delivery_date: string | null; status: string; article_summary: string | null; rejection_reason: string | null; photo_path: string; deleted_at: string | null; ai_confidence: number | null; created_at: string; delivery_note_items: NoteItem[] };
+type Note = { id: string; branch_id: string; supplier: string | null; delivery_number: string | null; delivery_date: string | null; status: string; article_summary: string | null; rejection_reason: string | null; photo_path: string; deleted_at: string | null; ai_confidence: number | null; approved_by: string | null; approved_at: string | null; created_at: string; delivery_note_items: NoteItem[] };
 
 const initialState: UpdateNoteState = { status: "idle", message: "" };
 const initialDeleteState: DeleteNoteState = { status: "idle", message: "" };
 
-export function NoteDetailPanel({ note, uploaderName, branches, photoUrl, closeHref, isAdmin }: { note: Note; uploaderName: string; branches: Branch[]; photoUrl: string | null; closeHref: string; isAdmin: boolean }) {
+export function NoteDetailPanel({ note, uploaderName, decisionActorName, branches, photoUrl, closeHref, isAdmin }: { note: Note; uploaderName: string; decisionActorName: string | null; branches: Branch[]; photoUrl: string | null; closeHref: string; isAdmin: boolean }) {
   const [state, formAction, pending] = useActionState(updateNoteData, initialState);
   const [deleteState, deleteAction, deleting] = useActionState(deleteNote, initialDeleteState);
   const items = [...(note.delivery_note_items || [])].sort((a, b) => a.line_number - b.line_number);
@@ -40,6 +40,7 @@ export function NoteDetailPanel({ note, uploaderName, branches, photoUrl, closeH
 
       <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 sm:px-7 sm:py-6">
         {note.ai_confidence !== null && <div className="mb-5 flex items-center justify-between rounded-xl bg-[#edf5ef] px-4 py-3 text-sm text-[#285b43]"><span className="flex items-center gap-2 font-medium"><Check size={17}/>AI-herkenning voltooid</span><span>{Math.round(Number(note.ai_confidence) * 100)}%</span></div>}
+        {(note.status === "approved" || note.status === "rejected") && note.approved_at && <div className={`mb-5 rounded-xl px-4 py-3 text-sm ${note.status === "approved" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}><p className="font-semibold">{note.status === "approved" ? "Geaccordeerd" : "Afgewezen"}</p><p className="mt-1">Door {decisionActorName || "Onbekende gebruiker"} op {new Intl.DateTimeFormat("nl-NL", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Amsterdam" }).format(new Date(note.approved_at))}</p></div>}
         <div className="mb-6"><p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[#718078]">Originele foto</p><NotePhoto url={photoUrl} photoPath={note.photo_path} alt={`Pakbon ${note.delivery_number || note.id} van ${note.supplier || "onbekende leverancier"}`} deleted={Boolean(note.deleted_at)}/></div>
 
         <form action={formAction} className="grid gap-4 rounded-2xl border border-[#dce4dd] bg-white p-5 sm:grid-cols-2">

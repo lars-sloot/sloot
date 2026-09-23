@@ -55,19 +55,19 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const userId = auth?.claims?.sub || "";
 
   const [{ data: notes = [] }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
-    supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
+    supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,approved_by,approved_at,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
     supabase.from("profiles").select("role").eq("id", userId).single(),
     supabase.from("branches").select("id,name").eq("active", true).order("name"),
     supabase.from("user_branches").select("branch_id").eq("user_id", userId),
   ]);
 
   const safeNotes = notes ?? [];
-  const uploaderIds = [...new Set(safeNotes.map((note) => note.uploaded_by).filter(Boolean))];
-  const uploaderNames = new Map<string, string>();
-  if (uploaderIds.length) {
+  const profileIds = [...new Set(safeNotes.flatMap((note) => [note.uploaded_by, note.approved_by]).filter((id): id is string => Boolean(id)))];
+  const profileNames = new Map<string, string>();
+  if (profileIds.length) {
     const admin = createAdminClient();
-    const { data: uploaders = [] } = await admin.from("profiles").select("id,full_name").in("id", uploaderIds);
-    for (const uploader of uploaders ?? []) uploaderNames.set(uploader.id, uploader.full_name || "Onbekende gebruiker");
+    const { data: profiles = [] } = await admin.from("profiles").select("id,full_name").in("id", profileIds);
+    for (const person of profiles ?? []) profileNames.set(person.id, person.full_name || "Onbekende gebruiker");
   }
   const assignmentIds = new Set((assignments ?? []).map((assignment) => assignment.branch_id));
   const editableBranches = profile?.role === "admin" ? (allBranches ?? []) : (allBranches ?? []).filter((branch) => assignmentIds.has(branch.id));
@@ -137,7 +137,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
               <span>{note.delivery_note_items?.length || 0} artikelen</span>
               <span className="inline-flex items-center justify-end gap-1 font-medium text-[#173b2b]">Bekijken <MoreHorizontal size={16}/></span>
             </div>
-            <p className="mt-2 truncate text-xs text-[#819087]">Geüpload door {uploaderNames.get(note.uploaded_by) || "Onbekende gebruiker"} · {formatUploadedAt(note.created_at)}</p>
+            <p className="mt-2 truncate text-xs text-[#819087]">Geüpload door {profileNames.get(note.uploaded_by) || "Onbekende gebruiker"} · {formatUploadedAt(note.created_at)}</p>
           </Link>;
         })}</div>
         <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-left text-sm">
@@ -149,7 +149,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
             <td className="px-5 py-4 text-[#33443a]"><Link href={rowHref} className="block">{note.supplier || "Wordt herkend"}</Link></td>
             <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{branchName(note.branches)}</Link></td>
             <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{formatDate(note.delivery_date)}</Link></td>
-            <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block"><span className="font-medium text-[#33443a]">{uploaderNames.get(note.uploaded_by) || "Onbekende gebruiker"}</span><span className="mt-0.5 block text-xs text-[#819087]">{formatUploadedAt(note.created_at)}</span></Link></td>
+            <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block"><span className="font-medium text-[#33443a]">{profileNames.get(note.uploaded_by) || "Onbekende gebruiker"}</span><span className="mt-0.5 block text-xs text-[#819087]">{formatUploadedAt(note.created_at)}</span></Link></td>
             <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{note.delivery_note_items?.length || 0}</Link></td>
             <td className="px-5 py-4"><Link href={rowHref} className={`inline-flex rounded-full px-3 py-1.5 text-xs font-medium ${statusStyles[note.status] || "bg-slate-100 text-slate-700"}`}>{labels[note.status] || note.status}</Link></td>
             <td className="px-5 py-4 text-right"><Link href={rowHref} aria-label={`Pakbon ${note.delivery_number || note.id} openen`} className="inline-grid h-9 w-9 place-items-center rounded-full text-[#718078] hover:bg-[#edf1ed] hover:text-[#173b2b]"><MoreHorizontal size={20}/></Link></td>
@@ -157,6 +157,6 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
         })}</tbody>
       </table></div></> : <div className="grid place-items-center p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Geen pakbonnen gevonden met deze filters.</p><Link href="/protected/pakbonnen" className="mt-3 text-sm font-medium text-[#173b2b] underline underline-offset-4">Filters wissen</Link></div>}
     </div>
-    {selectedNote && <NoteDetailPanel note={selectedNote} uploaderName={uploaderNames.get(selectedNote.uploaded_by) || "Onbekende gebruiker"} branches={editableBranches} photoUrl={photoUrl} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
+    {selectedNote && <NoteDetailPanel note={selectedNote} uploaderName={profileNames.get(selectedNote.uploaded_by) || "Onbekende gebruiker"} decisionActorName={selectedNote.approved_by ? profileNames.get(selectedNote.approved_by) || "Onbekende gebruiker" : null} branches={editableBranches} photoUrl={photoUrl} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
   </div>;
 }
