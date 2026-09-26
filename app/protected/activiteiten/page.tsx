@@ -19,6 +19,7 @@ const actionLabels: Record<string,string> = {
   "notification.settings_updated": "E-mailnotificaties aangepast",
   "notification.user_settings_updated": "E-mailnotificaties gebruiker aangepast",
   "notification.daily_digest_sent": "Dagelijks e-mailoverzicht verzonden",
+  "notification.test_digest_sent": "Handmatige testmail verzonden",
   "audit.undo": "Handeling teruggedraaid",
 };
 

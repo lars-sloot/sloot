@@ -1,18 +1,17 @@
 import { handleCallback } from "@vercel/queue";
+import { deliverDailyDigest, logDigest } from "@/lib/email/deliver-daily-digest";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { dailyDigestEmail } from "@/lib/email/daily-digest";
-import { digestWindow, type DailyDigestJob } from "@/lib/email/digest-schedule";
+import { type DailyDigestJob } from "@/lib/email/digest-schedule";
 
 export const maxDuration = 60;
-const DEFAULT_EMAIL_FROM = "Sloot pakbonnen <onboarding@resend.dev>";
 
-async function countQuery(query: PromiseLike<{ count: number | null; error: { message: string } | null }>) {
-  const { count, error } = await query;
-  if (error) throw new Error(error.message);
-  return count ?? 0;
+function timestampsMatch(first: string, second: string) {
+  const firstTimestamp = Date.parse(first);
+  const secondTimestamp = Date.parse(second);
+  return Number.isFinite(firstTimestamp) && Number.isFinite(secondTimestamp) && firstTimestamp === secondTimestamp;
 }
 
-async function sendDigest(job: DailyDigestJob) {
+async function sendDigest(job: DailyDigestJob, messageId: string) {
   if (!job?.organizationId || !job?.userId || !job?.scheduledDate || !job?.sendTime || !job?.settingsUpdatedAt) throw new Error("Ongeldige e-mailopdracht.");
   if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt.");
 
@@ -24,70 +23,66 @@ async function sendDigest(job: DailyDigestJob) {
     .eq("organization_id", job.organizationId)
     .maybeSingle();
   if (settingError) throw settingError;
-  const configuredTimes = Array.isArray(setting?.send_times) ? setting.send_times : [];
-  const relatedProfile = Array.isArray(setting?.profiles) ? setting.profiles[0] : setting?.profiles;
-  if (!setting?.daily_digest_enabled || !relatedProfile?.active || setting.updated_at !== job.settingsUpdatedAt || !configuredTimes.includes(job.sendTime)) return;
+  if (!setting) {
+    logDigest("warning", "digest_skipped", { messageId, userId: job.userId, scheduledDate: job.scheduledDate, sendTime: job.sendTime, reason: "missing_settings" });
+    return { status: "skipped" as const, reason: "missing_settings" };
+  }
+  const configuredTimes = Array.isArray(setting.send_times) ? setting.send_times : [];
+  const relatedProfile = Array.isArray(setting.profiles) ? setting.profiles[0] : setting.profiles;
+  const skipReason = !setting.daily_digest_enabled
+    ? "disabled_or_missing"
+    : !relatedProfile?.active
+      ? "inactive_user"
+      : !timestampsMatch(setting.updated_at, job.settingsUpdatedAt)
+        ? "outdated_schedule"
+        : !configuredTimes.includes(job.sendTime)
+          ? "removed_send_time"
+          : null;
+  if (skipReason) {
+    logDigest("warning", "digest_skipped", { messageId, userId: job.userId, scheduledDate: job.scheduledDate, sendTime: job.sendTime, reason: skipReason });
+    return { status: "skipped" as const, reason: skipReason };
+  }
   const recipient = setting.recipient_email?.trim().toLowerCase();
-  if (!recipient) return;
+  if (!recipient) {
+    logDigest("warning", "digest_skipped", { messageId, userId: job.userId, scheduledDate: job.scheduledDate, sendTime: job.sendTime, reason: "missing_recipient" });
+    return { status: "skipped" as const, reason: "missing_recipient" };
+  }
 
-  const day = digestWindow(job.scheduledDate);
-  const [incoming, processed, approved, rejected, pending] = await Promise.all([
-    countQuery(admin.from("delivery_notes").select("id", { count: "exact", head: true }).eq("organization_id", job.organizationId).gte("created_at", day.start).lt("created_at", day.end)),
-    countQuery(admin.from("delivery_notes").select("id", { count: "exact", head: true }).eq("organization_id", job.organizationId).in("status", ["approved", "rejected"]).gte("approved_at", day.start).lt("approved_at", day.end)),
-    countQuery(admin.from("delivery_notes").select("id", { count: "exact", head: true }).eq("organization_id", job.organizationId).eq("status", "approved").gte("approved_at", day.start).lt("approved_at", day.end)),
-    countQuery(admin.from("delivery_notes").select("id", { count: "exact", head: true }).eq("organization_id", job.organizationId).eq("status", "rejected").gte("approved_at", day.start).lt("approved_at", day.end)),
-    countQuery(admin.from("delivery_notes").select("id", { count: "exact", head: true }).eq("organization_id", job.organizationId).eq("status", "pending")),
-  ]);
-  const organization = Array.isArray(setting.organizations) ? setting.organizations[0] : setting.organizations;
-  const productionUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")
-    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "https://sloot-pakbonnen.vercel.app");
-  const email = dailyDigestEmail({
-    organizationName: organization?.name || "Sloot 2Wielers",
-    dateLabel: day.dateLabel,
-    incoming,
-    processed,
-    approved,
-    rejected,
-    pending,
-    pendingUrl: `${productionUrl}/protected/pakbonnen?status=pending`,
+  const result = await deliverDailyDigest({
+    organizationId: job.organizationId,
+    userId: job.userId,
+    recipient,
+    scheduledDate: job.scheduledDate,
+    sendTime: job.sendTime,
+    idempotencyKey: `daily-digest/${job.organizationId}/${job.userId}/${job.scheduledDate}/${job.sendTime}`,
+    messageId,
+    mode: "scheduled",
   });
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": `daily-digest/${job.organizationId}/${job.userId}/${job.scheduledDate}/${job.sendTime}`,
-    },
-    body: JSON.stringify({
-      from: process.env.EMAIL_FROM || DEFAULT_EMAIL_FROM,
-      to: [recipient],
-      subject: email.subject,
-      html: email.html,
-      text: email.text,
-    }),
-  });
-  if (!response.ok) throw new Error(`Resend returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
-
-  const now = new Date().toISOString();
-  const { error: updateError } = await admin
-    .from("user_notification_settings")
-    .update({ last_sent_at: now, updated_at: setting.updated_at })
-    .eq("user_id", job.userId)
-    .eq("organization_id", job.organizationId)
-    .eq("updated_at", setting.updated_at);
-  if (updateError) throw updateError;
-  await admin.from("audit_logs").insert({
-    organization_id: job.organizationId,
-    actor_id: null,
-    action: "notification.daily_digest_sent",
-    entity_type: "user_notification_settings",
-    entity_id: job.userId,
-    after_data: { date: day.dateKey, send_time: job.sendTime, recipient, incoming, processed, approved, rejected, pending },
-  });
+  return { status: "sent" as const, resendMessageId: result.resendMessageId };
 }
 
-const queueHandler = handleCallback<DailyDigestJob>(sendDigest, {
+const queueHandler = handleCallback<DailyDigestJob>(async (job, metadata) => {
+  const startedAt = Date.now();
+  logDigest("info", "digest_started", {
+    messageId: metadata.messageId,
+    deliveryCount: metadata.deliveryCount,
+    userId: job?.userId,
+    scheduledDate: job?.scheduledDate,
+    sendTime: job?.sendTime,
+  });
+  try {
+    const result = await sendDigest(job, metadata.messageId);
+    logDigest("info", "digest_finished", { messageId: metadata.messageId, userId: job.userId, result, durationMs: Date.now() - startedAt });
+  } catch (error) {
+    logDigest("error", "digest_failed", {
+      messageId: metadata.messageId,
+      userId: job?.userId,
+      error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startedAt,
+    });
+    throw error;
+  }
+}, {
   visibilityTimeoutSeconds: 300,
   retry: (_error, metadata) => {
     if (metadata.deliveryCount >= 5) return { acknowledge: true };

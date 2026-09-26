@@ -39,6 +39,11 @@ function dateKey(date: LocalDate) {
   return `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
 }
 
+export function amsterdamDateKey(now = new Date()) {
+  const current = localParts(now);
+  return dateKey({ year: current.year, month: current.month, day: current.day });
+}
+
 function localDateTimeToUtc(date: LocalDate, hour: number, minute: number) {
   const targetAsUtc = Date.UTC(date.year, date.month - 1, date.day, hour, minute, 0);
   let candidate = new Date(targetAsUtc);

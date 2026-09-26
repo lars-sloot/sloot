@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { BellRing, Clock3, Mail, Plus, Save, Trash2, UserRound } from "lucide-react";
+import { BellRing, Clock3, Mail, Plus, Save, Send, Trash2, UserRound } from "lucide-react";
 import {
+  sendTestDigestNow,
   updateUserNotificationSettings,
   type NotificationSettingsState,
 } from "@/app/actions/notifications";
@@ -26,6 +27,7 @@ type NotificationSettingsFormProps = {
 
 function UserNotificationCard({ user }: { user: NotificationUser }) {
   const [state, action, pending] = useActionState(updateUserNotificationSettings, initialState);
+  const [testState, testAction, testPending] = useActionState(sendTestDigestNow, initialState);
   const [times, setTimes] = useState(() => user.sendTimes.length ? user.sendTimes : ["08:00"]);
 
   return (
@@ -107,14 +109,31 @@ function UserNotificationCard({ user }: { user: NotificationUser }) {
           </p>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={pending || !user.active}
-          className="inline-flex w-fit items-center gap-2 rounded-xl bg-[#173b2b] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Save size={17} />
-          {pending ? "Opslaan…" : "Opslaan voor deze gebruiker"}
-        </button>
+        {testState.message ? (
+          <p role="status" className={`rounded-xl px-4 py-3 text-sm ${testState.status === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {testState.message}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="submit"
+            disabled={pending || testPending || !user.active}
+            className="inline-flex w-fit items-center gap-2 rounded-xl bg-[#173b2b] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save size={17} />
+            {pending ? "Opslaan…" : "Opslaan voor deze gebruiker"}
+          </button>
+          <button
+            type="submit"
+            formAction={testAction}
+            disabled={pending || testPending || !user.active}
+            className="inline-flex w-fit items-center gap-2 rounded-xl border border-[#b9c7bd] bg-white px-5 py-3 text-sm font-semibold text-[#173b2b] hover:bg-[#f5f7f4] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Send size={17} />
+            {testPending ? "Testmail versturen…" : "Nu testmail versturen"}
+          </button>
+        </div>
       </div>
     </form>
   );
