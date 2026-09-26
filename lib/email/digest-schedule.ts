@@ -4,7 +4,9 @@ export const AMSTERDAM_TIME_ZONE = "Europe/Amsterdam";
 
 export type DailyDigestJob = {
   organizationId: string;
+  userId: string;
   scheduledDate: string;
+  sendTime: string;
   settingsUpdatedAt: string;
 };
 
@@ -85,17 +87,23 @@ export function digestWindow(scheduledDate: string) {
   };
 }
 
-export async function scheduleDailyDigest(organizationId: string, sendTime: string, settingsUpdatedAt: string, now = new Date()) {
+export async function scheduleDailyDigest(
+  organizationId: string,
+  userId: string,
+  sendTime: string,
+  settingsUpdatedAt: string,
+  now = new Date(),
+) {
   const next = nextDigestOccurrence(sendTime, now);
   const delaySeconds = Math.max(0, Math.ceil((next.scheduledAt.getTime() - now.getTime()) / 1000));
-  const retentionSeconds = Math.min(604_800, Math.max(86_400, delaySeconds + 86_400));
+  const retentionSeconds = 86_400;
   const { messageId } = await send<DailyDigestJob>(
     "daily-digest-email",
-    { organizationId, scheduledDate: next.scheduledDate, settingsUpdatedAt },
+    { organizationId, userId, scheduledDate: next.scheduledDate, sendTime: next.sendTime, settingsUpdatedAt },
     {
       delaySeconds,
       retentionSeconds,
-      idempotencyKey: `daily-digest/${organizationId}/${next.scheduledDate}/${settingsUpdatedAt}`,
+      idempotencyKey: `daily-digest/${organizationId}/${userId}/${next.scheduledDate}/${next.sendTime}/${settingsUpdatedAt}`,
       region: "fra1",
     },
   );

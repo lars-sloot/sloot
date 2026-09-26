@@ -1,94 +1,112 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { normalizeSendTime, scheduleDailyDigest } from "@/lib/email/digest-schedule";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 export type NotificationSettingsState = {
   status: "idle" | "success" | "error";
   message: string;
 };
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-export async function updateNotificationSettings(
+export async function updateUserNotificationSettings(
   _previousState: NotificationSettingsState,
   formData: FormData,
 ): Promise<NotificationSettingsState> {
   try {
     const supabase = await createClient();
     const { data: auth } = await supabase.auth.getClaims();
-    const userId = auth?.claims?.sub;
-    if (!userId) return { status: "error", message: "Je bent niet ingelogd." };
+    const actorId = auth?.claims?.sub;
+    if (!actorId) return { status: "error", message: "Je bent niet ingelogd." };
 
-    const { data: profile } = await supabase
+    const { data: actor } = await supabase
       .from("profiles")
       .select("organization_id,role")
-      .eq("id", userId)
+      .eq("id", actorId)
       .single();
-    if (!profile || profile.role !== "admin") {
+    if (!actor || actor.role !== "admin") {
       return { status: "error", message: "Alleen een beheerder mag notificaties aanpassen." };
     }
 
+    const targetUserId = String(formData.get("user_id") || "");
     const enabled = formData.get("daily_digest_enabled") === "on";
-    const recipientEmails = [...new Set(formData.getAll("recipient_email").map((value) => String(value).trim().toLowerCase()).filter(Boolean))];
-    const sendTime = normalizeSendTime(String(formData.get("send_time") || ""));
-    if (!recipientEmails.length || recipientEmails.length > 20 || recipientEmails.some((email) => !emailPattern.test(email) || email.length > 320)) {
-      return { status: "error", message: "Vul één tot twintig geldige e-mailadressen in." };
+    const sendTimes = [...new Set(formData.getAll("send_time")
+      .map((value) => normalizeSendTime(String(value)))
+      .filter((value): value is string => Boolean(value)))].sort();
+    if (!targetUserId) return { status: "error", message: "De gebruiker ontbreekt." };
+    if (!sendTimes.length || sendTimes.length > 12) {
+      return { status: "error", message: "Kies één tot twaalf verzendmomenten in stappen van 15 minuten." };
     }
-    if (!sendTime) return { status: "error", message: "Kies een verzendmoment in stappen van 15 minuten." };
+
+    const { data: target } = await supabase
+      .from("profiles")
+      .select("id,organization_id,full_name")
+      .eq("id", targetUserId)
+      .eq("organization_id", actor.organization_id)
+      .maybeSingle();
+    if (!target) return { status: "error", message: "Deze gebruiker hoort niet bij jouw organisatie." };
+
+    const admin = createAdminClient();
+    const { data: authUser, error: authUserError } = await admin.auth.admin.getUserById(targetUserId);
+    const recipientEmail = authUser.user?.email?.trim().toLowerCase();
+    if (authUserError || !recipientEmail) {
+      return { status: "error", message: "Voor deze gebruiker is geen geldig account-e-mailadres gevonden." };
+    }
 
     const { data: before } = await supabase
-      .from("notification_settings")
-      .select("daily_digest_enabled,recipient_emails,send_time")
-      .eq("organization_id", profile.organization_id)
+      .from("user_notification_settings")
+      .select("daily_digest_enabled,recipient_email,send_times")
+      .eq("user_id", targetUserId)
       .maybeSingle();
     const updatedAt = new Date().toISOString();
     const after = {
-      organization_id: profile.organization_id,
+      user_id: targetUserId,
+      organization_id: actor.organization_id,
       daily_digest_enabled: enabled,
-      recipient_emails: recipientEmails,
-      send_time: sendTime,
+      recipient_email: recipientEmail,
+      send_times: sendTimes,
       updated_at: updatedAt,
     };
     const { error } = await supabase
-      .from("notification_settings")
-      .upsert(after, { onConflict: "organization_id" });
+      .from("user_notification_settings")
+      .upsert(after, { onConflict: "user_id" });
     if (error) throw error;
 
     const { error: auditError } = await supabase.from("audit_logs").insert({
-      organization_id: profile.organization_id,
-      actor_id: userId,
-      action: "notification.settings_updated",
-      entity_type: "notification_settings",
-      entity_id: profile.organization_id,
+      organization_id: actor.organization_id,
+      actor_id: actorId,
+      action: "notification.user_settings_updated",
+      entity_type: "user_notification_settings",
+      entity_id: targetUserId,
       before_data: before,
       after_data: {
+        user_name: target.full_name,
         daily_digest_enabled: enabled,
-        recipient_emails: recipientEmails,
-        send_time: sendTime,
+        recipient_email: recipientEmail,
+        send_times: sendTimes,
       },
     });
-    if (auditError) console.error("notification.settings_updated audit failed", { code: auditError.code });
+    if (auditError) console.error("notification.user_settings_updated audit failed", { code: auditError.code });
 
-    let scheduleWarning = "";
+    let failedSchedules = 0;
     if (enabled) {
-      try {
-        await scheduleDailyDigest(profile.organization_id, sendTime, updatedAt);
-      } catch (scheduleError) {
-        console.error("notification.schedule failed", scheduleError);
-        scheduleWarning = " De planning wordt vannacht automatisch opnieuw geprobeerd.";
-      }
+      const scheduleResults = await Promise.allSettled(
+        sendTimes.map((sendTime) => scheduleDailyDigest(actor.organization_id, targetUserId, sendTime, updatedAt)),
+      );
+      failedSchedules = scheduleResults.filter((result) => result.status === "rejected").length;
+      if (failedSchedules) console.error("notification schedules failed", { targetUserId, failedSchedules });
     }
+
     revalidatePath("/protected/notificaties");
     return {
       status: "success",
       message: enabled
-        ? `De dagelijkse e-mailnotificatie is ingeschakeld voor ${sendTime} uur.${scheduleWarning}`
-        : "De dagelijkse e-mailnotificatie is uitgeschakeld.",
+        ? `Notificaties voor ${target.full_name || recipientEmail} zijn ingesteld op ${sendTimes.join(", ")} uur.${failedSchedules ? " Niet alle momenten konden direct worden gepland; de nachtelijke controle probeert dit opnieuw." : ""}`
+        : `Notificaties voor ${target.full_name || recipientEmail} zijn uitgeschakeld.`,
     };
   } catch (error) {
-    console.error("notification.settings update failed", error);
+    console.error("user notification settings update failed", error);
     return {
       status: "error",
       message: error instanceof Error ? error.message : "De instellingen konden niet worden opgeslagen.",

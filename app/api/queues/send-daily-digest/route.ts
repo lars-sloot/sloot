@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { handleCallback } from "@vercel/queue";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dailyDigestEmail } from "@/lib/email/daily-digest";
@@ -14,22 +13,22 @@ async function countQuery(query: PromiseLike<{ count: number | null; error: { me
 }
 
 async function sendDigest(job: DailyDigestJob) {
-  if (!job?.organizationId || !job?.scheduledDate || !job?.settingsUpdatedAt) throw new Error("Ongeldige e-mailopdracht.");
+  if (!job?.organizationId || !job?.userId || !job?.scheduledDate || !job?.sendTime || !job?.settingsUpdatedAt) throw new Error("Ongeldige e-mailopdracht.");
   if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt.");
 
   const admin = createAdminClient();
   const { data: setting, error: settingError } = await admin
-    .from("notification_settings")
-    .select("daily_digest_enabled,recipient_emails,last_sent_date,updated_at,organizations(name)")
+    .from("user_notification_settings")
+    .select("daily_digest_enabled,recipient_email,send_times,updated_at,organizations(name),profiles(active)")
+    .eq("user_id", job.userId)
     .eq("organization_id", job.organizationId)
     .maybeSingle();
   if (settingError) throw settingError;
-  if (!setting?.daily_digest_enabled || setting.updated_at !== job.settingsUpdatedAt || setting.last_sent_date === job.scheduledDate) return;
-  const rawRecipients = Array.isArray(setting.recipient_emails)
-    ? setting.recipient_emails.filter((email): email is string => typeof email === "string")
-    : [];
-  const recipients = [...new Set(rawRecipients.map((email) => email.trim().toLowerCase()).filter(Boolean))];
-  if (!recipients.length) return;
+  const configuredTimes = Array.isArray(setting?.send_times) ? setting.send_times : [];
+  const relatedProfile = Array.isArray(setting?.profiles) ? setting.profiles[0] : setting?.profiles;
+  if (!setting?.daily_digest_enabled || !relatedProfile?.active || setting.updated_at !== job.settingsUpdatedAt || !configuredTimes.includes(job.sendTime)) return;
+  const recipient = setting.recipient_email?.trim().toLowerCase();
+  if (!recipient) return;
 
   const day = digestWindow(job.scheduledDate);
   const [incoming, processed, approved, rejected, pending] = await Promise.all([
@@ -53,30 +52,28 @@ async function sendDigest(job: DailyDigestJob) {
     pendingUrl: `${productionUrl}/protected/pakbonnen?status=pending`,
   });
 
-  await Promise.all(recipients.map(async (recipient) => {
-    const recipientHash = createHash("sha256").update(recipient).digest("hex").slice(0, 20);
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": `daily-digest/${job.organizationId}/${job.scheduledDate}/${recipientHash}`,
-      },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM || DEFAULT_EMAIL_FROM,
-        to: [recipient],
-        subject: email.subject,
-        html: email.html,
-        text: email.text,
-      }),
-    });
-    if (!response.ok) throw new Error(`Resend returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
-  }));
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `daily-digest/${job.organizationId}/${job.userId}/${job.scheduledDate}/${job.sendTime}`,
+    },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM || DEFAULT_EMAIL_FROM,
+      to: [recipient],
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    }),
+  });
+  if (!response.ok) throw new Error(`Resend returned ${response.status}: ${(await response.text()).slice(0, 300)}`);
 
   const now = new Date().toISOString();
   const { error: updateError } = await admin
-    .from("notification_settings")
-    .update({ last_sent_date: job.scheduledDate, last_sent_at: now, updated_at: setting.updated_at })
+    .from("user_notification_settings")
+    .update({ last_sent_at: now, updated_at: setting.updated_at })
+    .eq("user_id", job.userId)
     .eq("organization_id", job.organizationId)
     .eq("updated_at", setting.updated_at);
   if (updateError) throw updateError;
@@ -84,9 +81,9 @@ async function sendDigest(job: DailyDigestJob) {
     organization_id: job.organizationId,
     actor_id: null,
     action: "notification.daily_digest_sent",
-    entity_type: "notification_settings",
-    entity_id: job.organizationId,
-    after_data: { date: day.dateKey, recipient_count: recipients.length, incoming, processed, approved, rejected, pending },
+    entity_type: "user_notification_settings",
+    entity_id: job.userId,
+    after_data: { date: day.dateKey, send_time: job.sendTime, recipient, incoming, processed, approved, rejected, pending },
   });
 }
 
