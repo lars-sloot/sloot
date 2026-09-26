@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, Building2, FileText, LayoutDashboard, Menu, Users, X } from "lucide-react";
+import { Activity, BellRing, Building2, FileText, LayoutDashboard, Menu, Users, X } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 
 const userLinks = [
@@ -14,6 +14,7 @@ const userLinks = [
 const adminLinks = [
   ["/protected/gebruikers", "Gebruikers", Users],
   ["/protected/filialen", "Filialen", Building2],
+  ["/protected/notificaties", "Notificaties", BellRing],
   ["/protected/activiteiten", "Activiteiten", Activity],
 ] as const;
 

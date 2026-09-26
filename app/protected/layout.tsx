@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AuthButton } from "@/components/auth-button";
-import { Activity, Building2, FileText, LayoutDashboard, Users } from "lucide-react";
+import { Activity, BellRing, Building2, FileText, LayoutDashboard, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { MobileNavigation } from "@/components/sloot/mobile-navigation";
 
@@ -12,6 +12,7 @@ const userLinks = [
 const adminLinks = [
   ["/protected/gebruikers", "Gebruikers", Users],
   ["/protected/filialen", "Filialen", Building2],
+  ["/protected/notificaties", "Notificaties", BellRing],
   ["/protected/activiteiten", "Activiteiten", Activity],
 ] as const;
 
