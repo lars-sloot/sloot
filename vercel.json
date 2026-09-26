@@ -11,6 +11,16 @@
           "retryAfterSeconds": 30
         }
       ]
+    },
+    "app/api/queues/send-daily-digest/route.ts": {
+      "maxDuration": 60,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "daily-digest-email",
+          "retryAfterSeconds": 60
+        }
+      ]
     }
   },
   "crons": [
@@ -20,7 +30,7 @@
     },
     {
       "path": "/api/cron/daily-digest",
-      "schedule": "0 7 * * *"
+      "schedule": "5 0 * * *"
     }
   ]
 }

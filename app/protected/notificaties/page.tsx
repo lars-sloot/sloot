@@ -24,7 +24,7 @@ export default async function NotificationSettingsPage() {
 
   const { data: settings } = await supabase
     .from("notification_settings")
-    .select("daily_digest_enabled,recipient_email,last_sent_at")
+    .select("daily_digest_enabled,recipient_emails,send_time,last_sent_at")
     .eq("organization_id", profile.organization_id)
     .maybeSingle();
 
@@ -37,7 +37,8 @@ export default async function NotificationSettingsPage() {
       </p>
       <NotificationSettingsForm
         enabled={settings?.daily_digest_enabled ?? false}
-        recipientEmail={settings?.recipient_email ?? ""}
+        recipientEmails={settings?.recipient_emails ?? []}
+        sendTime={(settings?.send_time ?? "08:00").slice(0, 5)}
         emailServiceConfigured={Boolean(process.env.RESEND_API_KEY)}
         lastSentAt={formatSentAt(settings?.last_sent_at ?? null)}
       />
