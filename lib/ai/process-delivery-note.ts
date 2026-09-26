@@ -4,6 +4,7 @@ type OutputPart = { type?: string; text?: string };
 type OutputItem = { content?: OutputPart[] };
 type ExtractedItem = { article_code: string | null; ean: string | null; description: string | null; quantity: number | null; unit: string | null };
 type ExtractedNote = { supplier: string | null; delivery_number: string | null; delivery_date: string | null; article_summary: string | null; confidence: number; items: ExtractedItem[] };
+type NotePage = { page_number: number; storage_path: string; mime_type: string };
 
 const schema = {
   type: "object",
@@ -45,8 +46,26 @@ export async function processDeliveryNote(noteId: string, actorId: string) {
   await admin.from("delivery_notes").update({ status: "processing", updated_at: new Date().toISOString() }).eq("id", note.id);
 
   try {
-    const { data: signed, error: signError } = await admin.storage.from("delivery-notes").createSignedUrl(note.photo_path, 300);
-    if (signError || !signed?.signedUrl) throw new Error("Foto kon niet worden geopend.");
+    const { data: storedPages = [], error: pagesError } = await admin
+      .from("delivery_note_pages")
+      .select("page_number,storage_path,mime_type")
+      .eq("delivery_note_id", note.id)
+      .order("page_number");
+    if (pagesError) throw pagesError;
+    const pages: NotePage[] = storedPages?.length
+      ? storedPages
+      : [{ page_number: 1, storage_path: note.photo_path, mime_type: note.photo_path.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg" }];
+    const signedPages = await Promise.all(pages.map(async (page) => {
+      const { data, error } = await admin.storage.from("delivery-notes").createSignedUrl(page.storage_path, 300);
+      if (error || !data?.signedUrl) throw new Error(`Pagina ${page.page_number} kon niet worden geopend.`);
+      return { ...page, signedUrl: data.signedUrl };
+    }));
+    const inputContent: Array<Record<string, unknown>> = [
+      { type: "input_text", text: "Extraheer de pakbongegevens en alle artikelregels uit alle pagina's. De bestanden horen in paginavolgorde bij één pakbon." },
+      ...signedPages.map((page) => page.mime_type === "application/pdf"
+        ? { type: "input_file", file_url: page.signedUrl, filename: `pakbon-pagina-${page.page_number}.pdf`, detail: "high" }
+        : { type: "input_image", image_url: page.signedUrl, detail: "high" }),
+    ];
 
     const aiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -54,8 +73,8 @@ export async function processDeliveryNote(noteId: string, actorId: string) {
       body: JSON.stringify({
         model: process.env.OPENAI_VISION_MODEL,
         store: false,
-        instructions: "Lees deze Nederlandse pakbon nauwkeurig. Gebruik alleen zichtbare gegevens. Geef null bij twijfel. Negeer handgeschreven notities behalve wanneer die een ontvangstdatum tonen.",
-        input: [{ role: "user", content: [{ type: "input_text", text: "Extraheer de pakbongegevens en artikelregels." }, { type: "input_image", image_url: signed.signedUrl, detail: "high" }] }],
+        instructions: "Lees deze Nederlandse pakbon nauwkeurig. Gebruik alle aangeleverde pagina's als één document, behoud de paginavolgorde en voeg dubbele artikelregels niet samen. Gebruik alleen zichtbare gegevens. Geef null bij twijfel. Negeer handgeschreven notities behalve wanneer die een ontvangstdatum tonen.",
+        input: [{ role: "user", content: inputContent }],
         text: { format: { type: "json_schema", name: "delivery_note", strict: true, schema } },
       }),
     });
@@ -85,7 +104,7 @@ export async function processDeliveryNote(noteId: string, actorId: string) {
     }).eq("id", note.id);
     if (updateError) throw updateError;
 
-    await admin.from("audit_logs").insert({ organization_id: note.organization_id, actor_id: actorId, action: "delivery_note.ai_extracted", entity_type: "delivery_note", entity_id: note.id, after_data: { confidence: parsed.confidence, item_count: parsed.items.length } });
+    await admin.from("audit_logs").insert({ organization_id: note.organization_id, actor_id: actorId, action: "delivery_note.ai_extracted", entity_type: "delivery_note", entity_id: note.id, after_data: { confidence: parsed.confidence, item_count: parsed.items.length, page_count: pages.length } });
     return parsed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

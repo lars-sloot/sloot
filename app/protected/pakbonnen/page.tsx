@@ -55,7 +55,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const userId = auth?.claims?.sub || "";
 
   const [{ data: notes = [] }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
-    supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,approved_by,approved_at,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit)").order("created_at", { ascending: false }),
+    supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,approved_by,approved_at,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit),delivery_note_pages(id,page_number,storage_path,mime_type)").order("created_at", { ascending: false }),
     supabase.from("profiles").select("role").eq("id", userId).single(),
     supabase.from("branches").select("id,name").eq("active", true).order("name"),
     supabase.from("user_branches").select("branch_id").eq("user_id", userId),
@@ -85,10 +85,15 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   if (selectedBranch) filterParams.set("branch", selectedBranch);
   if (selectedStatus) filterParams.set("status", selectedStatus);
   const closeHref = `/protected/pakbonnen${filterParams.size ? `?${filterParams}` : ""}`;
-  let photoUrl: string | null = null;
+  let photoPages: Array<{ id: string; pageNumber: number; storagePath: string; mimeType: string; url: string | null }> = [];
   if (selectedNote && !selectedNote.deleted_at) {
-    const { data } = await supabase.storage.from("delivery-notes").createSignedUrl(selectedNote.photo_path, 3600);
-    photoUrl = data?.signedUrl || null;
+    const pages = selectedNote.delivery_note_pages?.length
+      ? [...selectedNote.delivery_note_pages].sort((a, b) => a.page_number - b.page_number)
+      : [{ id: selectedNote.id, page_number: 1, storage_path: selectedNote.photo_path, mime_type: selectedNote.photo_path.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg" }];
+    photoPages = await Promise.all(pages.map(async (page) => {
+      const { data } = await supabase.storage.from("delivery-notes").createSignedUrl(page.storage_path, 3600);
+      return { id: page.id, pageNumber: page.page_number, storagePath: page.storage_path, mimeType: page.mime_type, url: data?.signedUrl || null };
+    }));
   }
 
   function hrefWith(changes: Record<string, string | null>) {
@@ -157,6 +162,6 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
         })}</tbody>
       </table></div></> : <div className="grid place-items-center p-14 text-center text-[#718078]"><FileText/><p className="mt-3">Geen pakbonnen gevonden met deze filters.</p><Link href="/protected/pakbonnen" className="mt-3 text-sm font-medium text-[#173b2b] underline underline-offset-4">Filters wissen</Link></div>}
     </div>
-    {selectedNote && <NoteDetailPanel note={selectedNote} uploaderName={profileNames.get(selectedNote.uploaded_by) || "Onbekende gebruiker"} decisionActorName={selectedNote.approved_by ? profileNames.get(selectedNote.approved_by) || "Onbekende gebruiker" : null} branches={editableBranches} photoUrl={photoUrl} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
+    {selectedNote && <NoteDetailPanel note={selectedNote} uploaderName={profileNames.get(selectedNote.uploaded_by) || "Onbekende gebruiker"} decisionActorName={selectedNote.approved_by ? profileNames.get(selectedNote.approved_by) || "Onbekende gebruiker" : null} branches={editableBranches} photoPages={photoPages} closeHref={closeHref} isAdmin={profile?.role === "admin"}/>}
   </div>;
 }

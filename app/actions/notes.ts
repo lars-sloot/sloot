@@ -45,13 +45,14 @@ export async function deleteNotePhoto(formData: FormData) {
   const { supabase, userId, profile } = await context();
   if (profile.role !== "admin") throw new Error("Alleen een beheerder mag foto's verwijderen.");
   const id = String(formData.get("id") || "");
-  const { data: note } = await supabase.from("delivery_notes").select("photo_path,deleted_at").eq("id", id).single();
+  const { data: note } = await supabase.from("delivery_notes").select("photo_path,deleted_at,delivery_note_pages(storage_path)").eq("id", id).single();
   if (!note || note.deleted_at) return;
-  const { error: storageError } = await supabase.storage.from("delivery-notes").remove([note.photo_path]);
+  const photoPaths = note.delivery_note_pages?.length ? note.delivery_note_pages.map((page) => page.storage_path) : [note.photo_path];
+  const { error: storageError } = await supabase.storage.from("delivery-notes").remove(photoPaths);
   if (storageError) throw storageError;
   const now = new Date().toISOString();
   await supabase.from("delivery_notes").update({ deleted_at: now, updated_at: now }).eq("id", id);
-  await supabase.from("audit_logs").insert({ organization_id: profile.organization_id, actor_id: userId, action: "delivery_note.photo_deleted", entity_type: "delivery_note", entity_id: id, before_data: { photo_path: note.photo_path }, after_data: { deleted_at: now } });
+  await supabase.from("audit_logs").insert({ organization_id: profile.organization_id, actor_id: userId, action: "delivery_note.photo_deleted", entity_type: "delivery_note", entity_id: id, before_data: { photo_paths: photoPaths }, after_data: { deleted_at: now } });
   revalidatePath("/protected");
   revalidatePath("/protected/pakbonnen");
 }
@@ -73,13 +74,14 @@ export async function deleteNote(
     if (!id) return { status: "error", message: "Pakbon ontbreekt." };
     const { data: note, error: readError } = await supabase
       .from("delivery_notes")
-      .select("id,branch_id,supplier,delivery_number,delivery_date,status,article_summary,photo_path,deleted_at")
+      .select("id,branch_id,supplier,delivery_number,delivery_date,status,article_summary,photo_path,deleted_at,delivery_note_pages(storage_path)")
       .eq("id", id)
       .single();
     if (readError || !note) return { status: "error", message: "Pakbon niet gevonden of al verwijderd." };
 
     if (!note.deleted_at) {
-      const { error: storageError } = await supabase.storage.from("delivery-notes").remove([note.photo_path]);
+      const photoPaths = note.delivery_note_pages?.length ? note.delivery_note_pages.map((page) => page.storage_path) : [note.photo_path];
+      const { error: storageError } = await supabase.storage.from("delivery-notes").remove(photoPaths);
       if (storageError) {
         console.error("delivery_note.delete storage failed", { id, code: storageError.name, message: storageError.message });
         return { status: "error", message: "De foto kon niet worden verwijderd. De pakbon is behouden." };
