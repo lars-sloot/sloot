@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { BellRing, Clock3, Mail, Plus, Save, Send, Trash2, UserRound } from "lucide-react";
+import { BellRing, ChevronDown, Clock3, Mail, Plus, Save, Send, Trash2, UserRound } from "lucide-react";
 import {
   sendTestDigestNow,
   updateUserNotificationSettings,
@@ -29,26 +29,46 @@ function UserNotificationCard({ user }: { user: NotificationUser }) {
   const [state, action, pending] = useActionState(updateUserNotificationSettings, initialState);
   const [testState, testAction, testPending] = useActionState(sendTestDigestNow, initialState);
   const [times, setTimes] = useState(() => user.sendTimes.length ? user.sendTimes : ["08:00"]);
+  const [expanded, setExpanded] = useState(false);
+  const contentId = `notification-settings-${user.id}`;
 
   return (
     <form action={action} className="overflow-hidden rounded-2xl border border-[#dce4dd] bg-white shadow-[0_1px_2px_rgba(16,42,32,0.03)]">
       <input type="hidden" name="user_id" value={user.id} />
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e6ebe7] p-5 sm:p-6">
-        <div className="flex min-w-0 items-start gap-3">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        onClick={() => setExpanded((current) => !current)}
+        className={`flex w-full items-start justify-between gap-4 p-5 text-left transition-colors hover:bg-[#f8faf8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#286044] sm:p-6 ${expanded ? "border-b border-[#e6ebe7]" : ""}`}
+      >
+        <span className="flex min-w-0 items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#e9f2ed] text-[#286044]">
             <UserRound size={19} />
           </span>
-          <div className="min-w-0">
-            <h2 className="truncate font-semibold text-[#17231d]">{user.name}</h2>
-            <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-[#718078]"><Mail size={14} /> {user.email}</p>
-          </div>
-        </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${user.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-          {user.active ? "Actief account" : "Inactief account"}
+          <span className="min-w-0">
+            <span className="block truncate font-semibold text-[#17231d]">{user.name}</span>
+            <span className="mt-1 flex items-center gap-1.5 truncate text-sm text-[#718078]"><Mail size={14} /> {user.email}</span>
+            <span className="mt-2 block text-xs text-[#718078]">
+              {user.enabled ? `Ingeschakeld · ${user.sendTimes.join(", ")} uur` : "E-mailnotificaties uitgeschakeld"}
+            </span>
+          </span>
         </span>
-      </div>
+        <span className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <span className={`hidden rounded-full px-3 py-1 text-xs font-medium sm:inline-flex ${user.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+            {user.active ? "Actief account" : "Inactief account"}
+          </span>
+          <ChevronDown size={20} className={`mt-1 text-[#718078] transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+        </span>
+      </button>
 
-      <div className="grid gap-5 p-5 sm:p-6">
+      {expanded ? (
+        <div id={contentId} className="grid gap-5 p-5 sm:p-6">
+          <div className="sm:hidden">
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${user.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+              {user.active ? "Actief account" : "Inactief account"}
+            </span>
+          </div>
         <label className="flex items-start gap-3 rounded-xl border border-[#dce4dd] bg-[#f8faf8] p-4">
           <input
             type="checkbox"
@@ -134,7 +154,8 @@ function UserNotificationCard({ user }: { user: NotificationUser }) {
             {testPending ? "Testmail versturen…" : "Nu testmail versturen"}
           </button>
         </div>
-      </div>
+        </div>
+      ) : null}
     </form>
   );
 }
