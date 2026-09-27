@@ -21,6 +21,18 @@ const statusStyles: Record<string, string> = {
   error: "bg-red-50 text-red-700",
 };
 
+function currentGreeting(now = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Amsterdam",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(now));
+  if (hour < 6) return "Goedenacht";
+  if (hour < 12) return "Goedemorgen";
+  if (hour < 18) return "Goedemiddag";
+  return "Goedenavond";
+}
+
 export default async function Dashboard() {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getClaims();
@@ -49,7 +61,7 @@ export default async function Dashboard() {
   ];
   return <div>
     <ProcessingRefresh active={safeNotes.some((note) => note.status === "processing")}/>
-    <div><p className="text-sm text-[#718078]">Dashboard</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">Goedemiddag</h1><p className="mt-2 text-[#667168]">Dit is de actuele stand van de binnengekomen pakbonnen.</p></div>
+    <div><p className="text-sm text-[#718078]">Dashboard</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{currentGreeting()}</h1><p className="mt-2 text-[#667168]">Dit is de actuele stand van de binnengekomen pakbonnen.</p></div>
     <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">{stats.map(({ label, value, icon: Icon }) => <div key={label} className="min-w-0 rounded-2xl border border-[#dde4de] bg-white p-4 sm:p-5"><Icon size={22} className="text-[#2f7655] sm:size-6"/><p className="mt-4 text-2xl font-semibold sm:mt-5 sm:text-3xl">{value}</p><p className="mt-1 text-xs leading-5 text-[#718078] sm:text-sm">{label}</p></div>)}</div>
     <div className="mt-8 grid gap-6 xl:grid-cols-[340px_1fr]"><UploadNote branches={branches}/>
     <div className="rounded-2xl border border-[#dde4de] bg-white"><div className="flex items-center justify-between border-b border-[#e6ebe7] p-5"><div><h2 className="text-lg font-semibold">Laatste pakbonnen</h2><p className="mt-1 text-xs text-[#718078]">De status wordt tijdens verwerking automatisch bijgewerkt.</p></div><Link href="/protected/pakbonnen" className="text-sm font-medium text-[#286044]">Alles bekijken</Link></div>{safeNotes.length ? <div className="divide-y divide-[#edf0ed]">{safeNotes.map((note) => <Link href={`/protected/pakbonnen?note=${note.id}`} key={note.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 p-5 transition-colors hover:bg-[#f8faf8]"><div className="min-w-0"><p className="truncate font-medium">{note.supplier || "Leverancier wordt herkend"}</p><p className="mt-1 truncate text-sm text-[#718078]">{note.delivery_number || "Nog geen nummer"} · {note.delivery_date || "Datum onbekend"}</p></div><span className={`rounded-full px-3 py-1 text-xs font-medium ${statusStyles[note.status] || "bg-slate-100 text-slate-700"}`}>{statusLabels[note.status] || note.status}</span><ChevronRight size={18} className="text-[#8a948d]"/></Link>)}</div> : <div className="p-10 text-center text-[#718078]">Nog geen pakbonnen. Upload straks de eerste foto via de mobiele weergave.</div>}</div>
