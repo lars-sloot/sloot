@@ -12,11 +12,11 @@ async function ErrorContent({
     <>
       {params?.error ? (
         <p className="text-sm text-muted-foreground">
-          Code error: {params.error}
+          {params.error}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          An unspecified error occurred.
+          De link is ongeldig of verlopen. Vraag een nieuwe uitnodiging of resetmail aan.
         </p>
       )}
     </>
@@ -35,7 +35,7 @@ export default function Page({
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">
-                Sorry, something went wrong.
+                De aanmeldlink werkt niet
               </CardTitle>
             </CardHeader>
             <CardContent>

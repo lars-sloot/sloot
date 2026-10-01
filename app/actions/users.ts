@@ -22,11 +22,16 @@ export async function createUser(formData: FormData) {
   const branchIds = formData.getAll("branch_id").map(String);
   if (!email || !fullName) throw new Error("Naam en e-mailadres zijn verplicht.");
   const admin = createAdminClient();
-  const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { full_name: fullName } });
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")
+    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
+  const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+    data: { full_name: fullName },
+    redirectTo: `${appUrl}/auth/confirm?next=/auth/update-password`,
+  });
   if (error || !data.user) throw error || new Error("Gebruiker kon niet worden gemaakt.");
   await admin.from("profiles").update({ full_name: fullName, role, organization_id: organizationId }).eq("id", data.user.id);
   if (branchIds.length) await admin.from("user_branches").insert(branchIds.map((branchId) => ({ user_id: data.user.id, branch_id: branchId })));
-  await supabase.from("audit_logs").insert({ organization_id: organizationId, actor_id: userId, action: "user.created", entity_type: "profile", entity_id: data.user.id, after_data: { full_name: fullName, email, role, branch_ids: branchIds } });
+  await supabase.from("audit_logs").insert({ organization_id: organizationId, actor_id: userId, action: "user.created", entity_type: "profile", entity_id: data.user.id, after_data: { full_name: fullName, email, role, branch_ids: branchIds, invitation_sent: true } });
   revalidatePath("/protected/gebruikers");
 }
 
@@ -46,4 +51,3 @@ export async function updateUser(formData: FormData) {
   await supabase.from("audit_logs").insert({ organization_id: organizationId, actor_id: userId, action: "user.updated", entity_type: "profile", entity_id: targetId, before_data: before, after_data: { full_name: fullName, role, active, branch_ids: branchIds } });
   revalidatePath("/protected/gebruikers");
 }
-

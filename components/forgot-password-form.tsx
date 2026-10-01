@@ -33,12 +33,15 @@ export function ForgotPasswordForm({
     try {
       // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/update-password`,
+        redirectTo: `${window.location.origin}/auth/confirm?next=/auth/update-password`,
       });
       if (error) throw error;
       setSuccess(true);
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      const message = error instanceof Error ? error.message : "";
+      setError(message.toLowerCase().includes("rate limit")
+        ? "Er zijn te veel e-mails aangevraagd. Wacht even en probeer het later opnieuw."
+        : message || "De resetmail kon niet worden verstuurd.");
     } finally {
       setIsLoading(false);
     }
@@ -49,23 +52,21 @@ export function ForgotPasswordForm({
       {success ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Check Your Email</CardTitle>
-            <CardDescription>Password reset instructions sent</CardDescription>
+            <CardTitle className="text-2xl">Controleer je e-mail</CardTitle>
+            <CardDescription>Als het account bestaat, ontvang je een link om het wachtwoord opnieuw in te stellen.</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              If you registered using your email and password, you will receive
-              a password reset email.
+              De link is tijdelijk geldig en kan één keer worden gebruikt.
             </p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Reset Your Password</CardTitle>
+            <CardTitle className="text-2xl">Wachtwoord opnieuw instellen</CardTitle>
             <CardDescription>
-              Type in your email and we&apos;ll send you a link to reset your
-              password
+              Vul je e-mailadres in. Als het account bestaat, sturen we een resetlink.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -84,16 +85,16 @@ export function ForgotPasswordForm({
                 </div>
                 {error && <p className="text-sm text-red-500">{error}</p>}
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Sending..." : "Send reset email"}
+                  {isLoading ? "Versturen..." : "Resetmail versturen"}
                 </Button>
               </div>
               <div className="mt-4 text-center text-sm">
-                Already have an account?{" "}
+                Heb je al een account?{" "}
                 <Link
                   href="/auth/login"
                   className="underline underline-offset-4"
                 >
-                  Login
+                  Inloggen
                 </Link>
               </div>
             </form>

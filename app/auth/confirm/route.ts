@@ -1,30 +1,40 @@
 import { createClient } from "@/lib/supabase/server";
 import { type EmailOtpType } from "@supabase/supabase-js";
-import { redirect } from "next/navigation";
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+
+function safeNextPath(value: string | null, type: EmailOtpType | null) {
+  const fallback = type === "invite" || type === "recovery"
+    ? "/auth/update-password"
+    : "/protected";
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return fallback;
+  return value;
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+  const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") ?? "/";
+  const next = safeNextPath(searchParams.get("next"), type);
+  const supabase = await createClient();
+  let error: Error | null = null;
 
-  if (token_hash && type) {
-    const supabase = await createClient();
-
-    const { error } = await supabase.auth.verifyOtp({
+  if (code) {
+    const result = await supabase.auth.exchangeCodeForSession(code);
+    error = result.error;
+  } else if (token_hash && type) {
+    const result = await supabase.auth.verifyOtp({
       type,
       token_hash,
     });
-    if (!error) {
-      // redirect user to specified redirect URL or root of app
-      redirect(next);
-    } else {
-      // redirect the user to an error page with some instructions
-      redirect(`/auth/error?error=${error?.message}`);
-    }
+    error = result.error;
+  } else {
+    error = new Error("De link bevat geen geldige authenticatiecode.");
   }
 
-  // redirect the user to an error page with some instructions
-  redirect(`/auth/error?error=No token hash or type`);
+  if (!error) return NextResponse.redirect(new URL(next, request.url));
+
+  const errorUrl = new URL("/auth/error", request.url);
+  errorUrl.searchParams.set("error", error.message);
+  return NextResponse.redirect(errorUrl);
 }
