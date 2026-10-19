@@ -34,12 +34,15 @@ function setup(options = {}) {
   }
   const supabase = { from, auth: { getClaims: async () => ({ data: { claims: { sub: 'actor' } } }) } };
   let updates = 0;
+  let currentEmail = "old@example.com";
   const admin = { auth: { admin: {
-    getUserById: async (id) => { calls.push({ getUserById: id }); return { data: { user: { id, email: 'old@example.com' } } }; },
+    getUserById: async (id) => { calls.push({ getUserById: id }); return { data: { user: { id, email: currentEmail } } }; },
     updateUserById: async (id, values) => {
       calls.push({ updateUserById: id, values });
       updates++;
-      return { error: (updates === 1 && options.duplicate) || (updates === 2 && options.rollbackError) ? { code: 'email_exists' } : null };
+      const error = (updates === 1 && options.duplicate) || (updates === 2 && options.rollbackError) ? { code: 'email_exists' } : null;
+      if (!error) currentEmail = values.email;
+      return { error };
     },
   } } };
   const source = fs.readFileSync('app/actions/users.ts', 'utf8');
@@ -102,8 +105,19 @@ test('reports partial failure if the old address cannot be restored', async () =
   assert.equal(result.status, 'error');
   assert.match(result.message, /inlogadres is gewijzigd/);
 });
-test('unchanged address causes no Auth or database mutations', async () => {
+test('unchanged login address still synchronizes notifications without changing Auth or auditing', async () => {
   const fixture = setup({ email: 'old@example.com' });
   assert.equal((await fixture.run()).status, 'success');
-  assert.equal(fixture.calls.some(c => c.updateUserById || c.operation === 'update' || c.operation === 'insert'), false);
+  assert.equal(fixture.calls.some(c => c.updateUserById || c.table === 'audit_logs'), false);
+  assert.equal(fixture.calls.find(c => c.table === 'user_notification_settings').values.recipient_email, 'old@example.com');
+});
+
+test('retry repairs notification delivery after a partial failure', async () => {
+  const options = { notificationError: true, rollbackError: true };
+  const fixture = setup(options);
+  assert.equal((await fixture.run()).status, 'error');
+  options.notificationError = false;
+  assert.equal((await fixture.run()).status, 'success');
+  assert.equal(fixture.calls.filter(c => c.updateUserById).length, 2);
+  assert.equal(fixture.calls.filter(c => c.table === 'user_notification_settings').at(-1).values.recipient_email, 'new@example.com');
 });

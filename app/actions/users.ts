@@ -94,18 +94,26 @@ export async function updateUserEmail(_previousState: UserSettingsState, formDat
     const { data, error: userError } = await admin.auth.admin.getUserById(targetId);
     if (userError || !data.user?.email) return { status: "error", message: "Het huidige e-mailadres kon niet worden opgehaald." };
     const previousEmail = data.user.email;
-    if (previousEmail.toLowerCase() === email) return { status: "success", message: "Dit e-mailadres is al ingesteld." };
+    const emailChanged = previousEmail.toLowerCase() !== email;
 
-    const { error: emailError } = await admin.auth.admin.updateUserById(targetId, { email });
-    if (emailError) return { status: "error", message: emailError.code === "email_exists" || emailError.code === "email_address_not_authorized" ? "Dit e-mailadres is al in gebruik of niet toegestaan." : "Het e-mailadres kon niet worden gewijzigd. Controleer of het adres al in gebruik is en probeer het opnieuw." };
+    if (emailChanged) {
+      const { error: emailError } = await admin.auth.admin.updateUserById(targetId, { email });
+      if (emailError) return { status: "error", message: emailError.code === "email_exists" || emailError.code === "email_address_not_authorized" ? "Dit e-mailadres is al in gebruik of niet toegestaan." : "Het e-mailadres kon niet worden gewijzigd. Controleer of het adres al in gebruik is en probeer het opnieuw." };
+    }
 
     // Keep existing schedules valid: only change the recipient, not their version timestamp.
     const { error: notificationError } = await supabase.from("user_notification_settings").update({ recipient_email: email }).eq("user_id", targetId).eq("organization_id", organizationId);
     if (notificationError) {
+      if (!emailChanged) return { status: "error", message: "Het notificatieadres kon niet worden bijgewerkt. Probeer het opnieuw." };
       const { error: rollbackError } = await admin.auth.admin.updateUserById(targetId, { email: previousEmail });
       revalidatePath("/protected/gebruikers");
       revalidatePath("/protected/notificaties");
       return { status: "error", message: rollbackError ? "Het inlogadres is gewijzigd, maar het notificatieadres kon niet worden bijgewerkt. Vernieuw de pagina en probeer het opnieuw." : "Het notificatieadres kon niet worden bijgewerkt. De e-mailwijziging is teruggedraaid; probeer het opnieuw." };
+    }
+    if (!emailChanged) {
+      revalidatePath("/protected/gebruikers");
+      revalidatePath("/protected/notificaties");
+      return { status: "success", message: "Het e-mailadres is ingesteld voor inloggen en e-mailnotificaties." };
     }
     const { error: auditError } = await supabase.from("audit_logs").insert({ organization_id: organizationId, actor_id: userId, action: "user.email_updated", entity_type: "profile", entity_id: targetId, before_data: { email: previousEmail }, after_data: { email } });
     revalidatePath("/protected/gebruikers");
