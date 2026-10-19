@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createUser, updateUser } from "@/app/actions/users";
 import { UserPlus } from "lucide-react";
 import { redirect } from "next/navigation";
+import { UserSubmitButton } from "@/components/sloot/user-submit-button";
 
 export default async function UsersPage() {
   const supabase = await createClient();
@@ -22,7 +23,7 @@ export default async function UsersPage() {
         <label className="grid gap-1 text-sm">E-mail<input name="email" type="email" required className="rounded-xl border p-3"/></label>
         <label className="grid gap-1 text-sm">Rol<select name="role" className="rounded-xl border p-3"><option value="user">Gebruiker</option><option value="admin">Beheerder</option></select></label>
         <fieldset className="text-sm"><legend className="mb-2">Filialen</legend><div className="flex flex-wrap gap-3">{branches?.map((b) => <label key={b.id} className="flex items-center gap-2"><input type="checkbox" name="branch_id" value={b.id}/>{b.name}</label>)}</div></fieldset>
-        <button className="w-fit rounded-xl bg-[#173b2b] px-5 py-3 text-white">Gebruiker aanmaken</button>
+        <UserSubmitButton label="Gebruiker aanmaken" pendingLabel="Aanmaken…" />
       </form>
     </details>
     <div className="mt-6 grid gap-4">
@@ -36,7 +37,7 @@ export default async function UsersPage() {
             <label className="grid gap-1 text-sm">Rol<select name="role" defaultValue={profile.role} className="rounded-xl border p-3"><option value="user">Gebruiker</option><option value="admin">Beheerder</option></select></label>
             <fieldset className="text-sm"><legend className="mb-2">Filialen</legend><div className="flex flex-wrap gap-3">{branches?.map((b) => <label key={b.id} className="flex items-center gap-2"><input type="checkbox" name="branch_id" value={b.id} defaultChecked={selected.has(b.id)}/>{b.name}</label>)}</div></fieldset>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="active" defaultChecked={profile.active}/> Account actief</label>
-            <button className="w-fit rounded-xl bg-[#173b2b] px-5 py-3 text-white">Wijzigingen opslaan</button>
+            <UserSubmitButton label="Wijzigingen opslaan" pendingLabel="Opslaan…" />
           </form>
         </details>;
       })}
