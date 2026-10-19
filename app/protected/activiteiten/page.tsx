@@ -17,6 +17,7 @@ const actionLabels: Record<string,string> = {
   "delivery_note.photo_retention_deleted": "Foto na bewaartermijn verwijderd",
   "user.created": "Gebruiker aangemaakt",
   "user.updated": "Gebruiker aangepast",
+  "user.email_updated": "E-mailadres gebruiker aangepast",
   "notification.settings_updated": "E-mailnotificaties aangepast",
   "notification.user_settings_updated": "E-mailnotificaties gebruiker aangepast",
   "notification.daily_digest_sent": "Dagelijks e-mailoverzicht verzonden",
