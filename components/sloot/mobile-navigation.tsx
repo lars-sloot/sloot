@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Activity, BellRing, Building2, FileText, LayoutDashboard, Menu, Users, X } from "lucide-react";

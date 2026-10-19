@@ -1,3 +1,4 @@
+import { getViewerProfile } from "@/lib/supabase/viewer";
 import { redirect } from "next/navigation";
 import { NotificationSettingsForm, type NotificationUser } from "@/components/sloot/notification-settings-form";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -14,13 +15,7 @@ function formatSentAt(value: string | null) {
 
 export default async function NotificationSettingsPage() {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getClaims();
-  const userId = auth?.claims?.sub || "";
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id,role")
-    .eq("id", userId)
-    .maybeSingle();
+  const profile = await getViewerProfile();
   if (!profile || profile.role !== "admin") redirect("/protected");
 
   const admin = createAdminClient();
