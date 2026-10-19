@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { Camera, CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
 
 const features = [

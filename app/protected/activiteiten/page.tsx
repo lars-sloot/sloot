@@ -1,3 +1,4 @@
+import { getViewerProfile } from "@/lib/supabase/viewer";
 import { createClient } from "@/lib/supabase/server";
 import { undoAudit } from "@/app/actions/audit";
 import { redirect } from "next/navigation";
@@ -25,8 +26,7 @@ const actionLabels: Record<string,string> = {
 
 export default async function ActivityPage() {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getClaims();
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", auth?.claims?.sub || "").single();
+  const profile = await getViewerProfile();
   if (profile?.role !== "admin") redirect("/protected");
   const { data: logs = [] } = await supabase.from("audit_logs").select("id,action,entity_type,entity_id,created_at,undone_at,actor:profiles!audit_logs_actor_id_fkey(full_name)").order("created_at", { ascending: false }).limit(100);
   return <div><p className="text-sm text-[#718078]">Beheer</p><h1 className="mt-1 text-3xl font-semibold">Activiteiten</h1><p className="mt-2 text-[#667168]">Alle belangrijke handelingen worden vastgelegd. Alleen veilige wijzigingen zijn terug te draaien.</p>

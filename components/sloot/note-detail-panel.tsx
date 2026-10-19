@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { useActionState, useEffect } from "react";
 import { Check, PackageSearch, Save, Trash2, X } from "lucide-react";
 import { approveNote, deleteNote, deleteNotePhoto, rejectNote, updateNoteData, type DeleteNoteState, type UpdateNoteState } from "@/app/actions/notes";

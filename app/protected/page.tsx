@@ -1,5 +1,6 @@
+import { getViewerClaims, getViewerProfile } from "@/lib/supabase/viewer";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/navigation-link";
 import { createClient } from "@/lib/supabase/server";
 import { AlertCircle, CheckCircle2, ChevronRight, Clock3, FileText } from "lucide-react";
 import { UploadNote } from "@/components/sloot/upload-note";
@@ -35,17 +36,17 @@ function currentGreeting(now = new Date()) {
 
 export default async function Dashboard() {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getClaims();
-  if (!auth?.claims) redirect("/auth/login");
-  const userId = auth.claims.sub;
-  const [{ data: notes = [] }, { data: profile }] = await Promise.all([
+  const claims = await getViewerClaims();
+  if (!claims) redirect("/auth/login");
+  const userId = claims.sub;
+  const [{ data: notes = [] }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
     supabase.from("delivery_notes").select("id,status,supplier,delivery_number,delivery_date,branch:branches(name)").order("created_at", { ascending: false }).limit(6),
-    supabase.from("profiles").select("role").eq("id", userId).single(),
+    getViewerProfile().then((data) => ({ data })),
+    supabase.from("branches").select("id,name").eq("active", true).order("name"),
+    supabase.from("user_branches").select("branch_id").eq("user_id", userId),
   ]);
-  const { data: allBranches = [] } = await supabase.from("branches").select("id,name").eq("active", true).order("name");
   let branches = allBranches || [];
   if (profile?.role !== "admin") {
-    const { data: assignments = [] } = await supabase.from("user_branches").select("branch_id").eq("user_id", userId);
     const allowed = new Set(assignments?.map((row) => row.branch_id));
     branches = branches.filter((branch) => allowed.has(branch.id));
   }

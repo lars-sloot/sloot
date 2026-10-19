@@ -1,7 +1,7 @@
-import Link from "next/link";
+import { getViewerClaims, getViewerProfile } from "@/lib/supabase/viewer";
+import Link from "@/components/navigation-link";
 import { AuthButton } from "@/components/auth-button";
 import { Activity, BellRing, Building2, FileText, LayoutDashboard, Users } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
 import { MobileNavigation } from "@/components/sloot/mobile-navigation";
 
 const userLinks = [
@@ -17,13 +17,11 @@ const adminLinks = [
 ] as const;
 
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getClaims();
-  const userId = auth?.claims?.sub || "";
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+  const claims = await getViewerClaims();
+  const profile = await getViewerProfile();
   const isAdmin = profile?.role === "admin";
   const links = isAdmin ? [...userLinks, ...adminLinks] : userLinks;
-  const email = typeof auth?.claims?.email === "string" ? auth.claims.email : "";
+  const email = typeof claims?.email === "string" ? claims.email : "";
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-clip bg-[#f5f7f4] text-[#18221b] lg:grid lg:grid-cols-[250px_minmax(0,1fr)]">

@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { getViewerClaims, getViewerProfile } from "@/lib/supabase/viewer";
+import Form from "next/form";
+import Link from "@/components/navigation-link";
 import { Camera, FileText, MoreHorizontal, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -51,12 +53,12 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const selectedStatus = firstParam(params.status);
   const selectedNoteId = firstParam(params.note);
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getClaims();
-  const userId = auth?.claims?.sub || "";
+  const claims = await getViewerClaims();
+  const userId = claims?.sub || "";
 
   const [{ data: notes = [] }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
     supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,approved_by,approved_at,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit),delivery_note_pages(id,page_number,storage_path,mime_type)").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("role").eq("id", userId).single(),
+    getViewerProfile().then((data) => ({ data })),
     supabase.from("branches").select("id,name").eq("active", true).order("name"),
     supabase.from("user_branches").select("branch_id").eq("user_id", userId),
   ]);
@@ -115,11 +117,11 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
     </div>
 
     <div className="mt-7 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <form method="get" className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
+      <Form key={`${query}:${selectedBranch}:${selectedStatus}`} action="/protected/pakbonnen" className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
         <label className="relative min-w-0 flex-1 lg:max-w-md"><span className="sr-only">Zoeken</span><Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#718078]" size={18}/><input name="q" defaultValue={query} placeholder="Zoek leverancier, nummer, filiaal of artikel" className="w-full rounded-xl border border-[#d6ddd7] bg-white py-3 pl-10 pr-4 text-sm outline-none focus:border-[#173b2b]"/></label>
         <label><span className="sr-only">Filiaal</span><select name="branch" defaultValue={selectedBranch} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-sm outline-none focus:border-[#173b2b]"><option value="">Alle filialen</option>{editableBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
         {selectedStatus && <input type="hidden" name="status" value={selectedStatus}/>}<button className="rounded-xl border border-[#d6ddd7] bg-white px-5 py-3 text-sm font-medium text-[#33443a] hover:bg-[#f4f6f4]">Zoeken</button>
-      </form>
+      </Form>
       <nav aria-label="Filter op status" className="flex flex-wrap gap-2">{statusFilters.map(([value, text]) => <Link key={value || "all"} href={hrefWith({ status: value || null, note: null })} className={`rounded-full border px-4 py-2 text-sm font-medium ${selectedStatus === value ? "border-[#173b2b] bg-[#173b2b] text-white" : "border-[#d6ddd7] bg-white text-[#667168] hover:bg-[#f4f6f4]"}`}>{text}</Link>)}</nav>
     </div>
 
