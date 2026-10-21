@@ -1,3 +1,4 @@
+import { getNotesPageData } from "@/lib/notes/page-data";
 import { getViewerClaims, getViewerProfile } from "@/lib/supabase/viewer";
 import Form from "next/form";
 import Link from "@/components/navigation-link";
@@ -56,15 +57,15 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const claims = await getViewerClaims();
   const userId = claims?.sub || "";
 
-  const [{ data: notes = [] }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
-    supabase.from("delivery_notes").select("id,branch_id,uploaded_by,supplier,delivery_number,delivery_date,status,article_summary,rejection_reason,photo_path,deleted_at,ai_confidence,approved_by,approved_at,created_at,branches(name),delivery_note_items(id,line_number,article_code,ean,description,quantity,unit),delivery_note_pages(id,page_number,storage_path,mime_type)").order("created_at", { ascending: false }),
+  const [{ notes, selectedNote, searchItems }, { data: profile }, { data: allBranches = [] }, { data: assignments = [] }] = await Promise.all([
+    getNotesPageData(supabase, selectedNoteId, query),
     getViewerProfile().then((data) => ({ data })),
     supabase.from("branches").select("id,name").eq("active", true).order("name"),
     supabase.from("user_branches").select("branch_id").eq("user_id", userId),
   ]);
 
   const safeNotes = notes ?? [];
-  const profileIds = [...new Set(safeNotes.flatMap((note) => [note.uploaded_by, note.approved_by]).filter((id): id is string => Boolean(id)))];
+  const profileIds = [...new Set([...safeNotes.map((note) => note.uploaded_by), selectedNote?.uploaded_by, selectedNote?.approved_by].filter((id): id is string => Boolean(id)))];
   const profileNames = new Map<string, string>();
   if (profileIds.length) {
     const admin = createAdminClient();
@@ -73,15 +74,20 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   }
   const assignmentIds = new Set((assignments ?? []).map((assignment) => assignment.branch_id));
   const editableBranches = profile?.role === "admin" ? (allBranches ?? []) : (allBranches ?? []).filter((branch) => assignmentIds.has(branch.id));
+  const searchableItems = new Map<string, string[]>();
+  for (const item of searchItems) {
+    const values = searchableItems.get(item.delivery_note_id) ?? [];
+    values.push(item.article_code || "", item.ean || "", item.description || "");
+    searchableItems.set(item.delivery_note_id, values);
+  }
   const normalizedQuery = query.toLocaleLowerCase("nl");
   const filteredNotes = safeNotes.filter((note) => {
     if (selectedBranch && note.branch_id !== selectedBranch) return false;
     if (selectedStatus && note.status !== selectedStatus) return false;
     if (!normalizedQuery) return true;
-    const searchable = [note.supplier, note.delivery_number, branchName(note.branches), note.article_summary, ...note.delivery_note_items.flatMap((item) => [item.article_code, item.ean, item.description])].filter(Boolean).join(" ").toLocaleLowerCase("nl");
+    const searchable = [note.supplier, note.delivery_number, branchName(note.branches), note.article_summary, ...(searchableItems.get(note.id) ?? [])].filter(Boolean).join(" ").toLocaleLowerCase("nl");
     return searchable.includes(normalizedQuery);
   });
-  const selectedNote = safeNotes.find((note) => note.id === selectedNoteId) || null;
   const filterParams = new URLSearchParams();
   if (query) filterParams.set("q", query);
   if (selectedBranch) filterParams.set("branch", selectedBranch);
@@ -141,7 +147,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
             <div className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-1 text-xs text-[#667168]">
               <span className="truncate">{branchName(note.branches)}</span>
               <span className="text-right">{formatDate(note.delivery_date)}</span>
-              <span>{note.delivery_note_items?.length || 0} artikelen</span>
+              <span>{note.delivery_note_items[0]?.count || 0} artikelen</span>
               <span className="inline-flex items-center justify-end gap-1 font-medium text-[#173b2b]">Bekijken <MoreHorizontal size={16}/></span>
             </div>
             <p className="mt-2 truncate text-xs text-[#819087]">Geüpload door {profileNames.get(note.uploaded_by) || "Onbekende gebruiker"} · {formatUploadedAt(note.created_at)}</p>
@@ -157,7 +163,7 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
             <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{branchName(note.branches)}</Link></td>
             <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{formatDate(note.delivery_date)}</Link></td>
             <td className="whitespace-nowrap px-5 py-4 text-[#526057]"><Link href={rowHref} className="block"><span className="font-medium text-[#33443a]">{profileNames.get(note.uploaded_by) || "Onbekende gebruiker"}</span><span className="mt-0.5 block text-xs text-[#819087]">{formatUploadedAt(note.created_at)}</span></Link></td>
-            <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{note.delivery_note_items?.length || 0}</Link></td>
+            <td className="px-5 py-4 text-[#526057]"><Link href={rowHref} className="block">{note.delivery_note_items[0]?.count || 0}</Link></td>
             <td className="px-5 py-4"><Link href={rowHref} className={`inline-flex rounded-full px-3 py-1.5 text-xs font-medium ${statusStyles[note.status] || "bg-slate-100 text-slate-700"}`}>{labels[note.status] || note.status}</Link></td>
             <td className="px-5 py-4 text-right"><Link href={rowHref} aria-label={`Pakbon ${note.delivery_number || note.id} openen`} className="inline-grid h-9 w-9 place-items-center rounded-full text-[#718078] hover:bg-[#edf1ed] hover:text-[#173b2b]"><MoreHorizontal size={20}/></Link></td>
           </tr>;
