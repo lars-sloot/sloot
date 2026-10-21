@@ -175,7 +175,7 @@ export function NotificationSettingsForm({ users, emailServiceConfigured }: Noti
 
       {!emailServiceConfigured ? (
         <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-          De e-maildienst moet nog aan Vercel worden gekoppeld. Je kunt de schema&apos;s alvast opslaan; verzending begint zodra de koppeling actief is.
+          De SMTP-instellingen ontbreken of zijn onvolledig. Je kunt de verzendmomenten alvast opslaan. E-mails worden verstuurd zodra de mailserver is ingesteld.
         </div>
       ) : null}
 

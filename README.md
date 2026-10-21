@@ -39,3 +39,33 @@ Productiebuild:
 pnpm exec next build --webpack
 ```
 
+
+## Pakbonoverzichten en testmails via SMTP
+
+Stel in Vercel bij **sloot-pakbonnen → Settings → Environment Variables** de volgende servervariabelen in voor **Production**. Gebruik voor Preview uitsluitend een apart testaccount. Voer daarna een nieuwe deployment uit.
+
+| Variabele | Waarde |
+| --- | --- |
+| `SMTP_HOST` | SMTP-servernaam van de mailprovider, zonder `https://` |
+| `SMTP_PORT` | `587` voor STARTTLS of `465` voor directe TLS |
+| `SMTP_USER` | SMTP-gebruikersnaam, vaak het volledige e-mailadres |
+| `SMTP_PASSWORD` | SMTP-wachtwoord of een app-wachtwoord; markeer als Sensitive |
+| `SMTP_SECURE` | `false` bij poort 587; `true` bij poort 465. Zonder deze variabele wordt 465 automatisch als TLS herkend. |
+| `EMAIL_FROM` | Toegestaan afzenderadres, bijvoorbeeld `Sloot pakbonnen <pakbonnen@sloot2wielers.nl>` |
+| `NEXT_PUBLIC_APP_URL` | Het websiteadres voor de links in de mail, bijvoorbeeld `https://pakbonnen.sloot2wielers.nl` |
+
+De app gebruikt voor pakbonoverzichten en de knop **Nu testmail versturen** geen Resend meer. De bestaande planning en e-mailinhoud blijven behouden. Een succesvolle test betekent dat de SMTP-server de mail heeft geaccepteerd; controleer daarnaast de inbox en eventuele spammap.
+
+De verbinding moet TLS ondersteunen en het certificaat moet geldig zijn. Gebruik een afzender waarvoor het SMTP-account verzendrechten heeft. Wachtwoorden horen alleen in Vercel of een lokale, niet-gecommitteerde `.env.local`, nooit in Git of chat.
+
+**Resetmails en uitnodigingen** worden apart door Supabase Auth verzonden. Vul dezelfde SMTP-servergegevens daar in bij de Custom SMTP-instellingen. Vercel-variabelen wijzigen de Supabase-instellingen niet.
+
+Geplande berichten krijgen een stabiele Message-ID. Het activiteitenlog wordt gecontroleerd om opnieuw afgeleverde queue-opdrachten die al zijn verzonden over te slaan. Een fout bij het vastleggen na SMTP-acceptatie veroorzaakt geen directe herverzending. SMTP biedt geen algemene garantie op precies één aflevering: bij een verbroken verbinding rond acceptatie kan een herhaalde poging alsnog een dubbele mail opleveren.
+
+Controle:
+
+```bash
+node --test tests/*.test.mjs
+npm run lint
+npm run build -- --webpack
+```

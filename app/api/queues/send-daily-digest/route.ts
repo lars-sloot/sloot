@@ -13,7 +13,6 @@ function timestampsMatch(first: string, second: string) {
 
 async function sendDigest(job: DailyDigestJob, messageId: string) {
   if (!job?.organizationId || !job?.userId || !job?.scheduledDate || !job?.sendTime || !job?.settingsUpdatedAt) throw new Error("Ongeldige e-mailopdracht.");
-  if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt.");
 
   const admin = createAdminClient();
   const { data: setting, error: settingError } = await admin
@@ -58,7 +57,7 @@ async function sendDigest(job: DailyDigestJob, messageId: string) {
     messageId,
     mode: "scheduled",
   });
-  return { status: "sent" as const, resendMessageId: result.resendMessageId };
+  return { status: "sent" as const, emailMessageId: result.emailMessageId };
 }
 
 const queueHandler = handleCallback<DailyDigestJob>(async (job, metadata) => {

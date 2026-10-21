@@ -1,3 +1,4 @@
+import { isSmtpConfigured } from "@/lib/email/smtp";
 import { getViewerProfile } from "@/lib/supabase/viewer";
 import { redirect } from "next/navigation";
 import { NotificationSettingsForm, type NotificationUser } from "@/components/sloot/notification-settings-form";
@@ -59,7 +60,7 @@ export default async function NotificationSettingsPage() {
       </p>
       <NotificationSettingsForm
         users={users}
-        emailServiceConfigured={Boolean(process.env.RESEND_API_KEY)}
+        emailServiceConfigured={isSmtpConfigured()}
       />
     </div>
   );
