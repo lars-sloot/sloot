@@ -69,3 +69,11 @@ node --test tests/*.test.mjs
 npm run lint
 npm run build -- --webpack
 ```
+
+## Foto-compressie bij nieuwe uploads
+
+Nieuwe grote JPG-, PNG- en door de browser leesbare HEIC-foto's worden op het apparaat voorbereid voordat ze worden verstuurd. De app probeert WebP op kwaliteit 0,92; als de browser geen WebP kan maken, wordt JPEG geprobeerd. Gewone documentfoto's krijgen maximaal 4096 pixels aan de langste zijde, zonder vergroten en met behoud van de beeldverhouding en EXIF-oriëntatie. Lange bonnen (verhouding groter dan 2:1) behouden hun pixelafmetingen om kleine tekst te beschermen.
+
+Alleen resultaten die minstens 10% kleiner zijn worden gebruikt. Bestanden onder 200 KiB, bestaande WebP en PDF blijven ongewijzigd. Als een browser het formaat niet kan verwerken, wordt het origineel behouden en krijgt de gebruiker een melding. Pagina's worden achter elkaar verwerkt om het geheugengebruik op telefoons te beperken; een hervatte upload comprimeert eerder voorbereide foto's niet opnieuw.
+
+Supabase ontvangt uitsluitend het gekozen uploadbestand, met bijpassende extensie en MIME-type. Er wordt geen tweede origineel opgeslagen. De bestaande AI-verwerking, weergave en bewaartermijn blijven gelden. Deze wijziging past bestaande bestanden in Storage niet aan. Leesbaarheid hangt ook af van de oorspronkelijke scherpte en belichting: compressie herstelt geen onscherpe foto.
