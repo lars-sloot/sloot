@@ -1,8 +1,7 @@
 import { dailyDigestEmail } from "@/lib/email/daily-digest";
 import { digestWindow } from "@/lib/email/digest-schedule";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-const DEFAULT_EMAIL_FROM = "Sloot pakbonnen <onboarding@resend.dev>";
+import { getSmtpConfig, sendSmtpEmail } from "@/lib/email/smtp";
 
 type DeliverDailyDigestInput = {
   organizationId: string;
@@ -35,12 +34,27 @@ async function countQuery(query: PromiseLike<{ count: number | null; error: { me
 }
 
 export async function deliverDailyDigest(input: DeliverDailyDigestInput) {
-  if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY ontbreekt.");
+  getSmtpConfig();
 
   const recipient = input.recipient.trim().toLowerCase();
   if (!recipient) throw new Error("Het e-mailadres van de ontvanger ontbreekt.");
 
   const admin = createAdminClient();
+  if (input.mode === "scheduled") {
+    const { data: receipt, error } = await admin.from("audit_logs")
+      .select("after_data")
+      .eq("organization_id", input.organizationId)
+      .eq("entity_id", input.userId)
+      .eq("action", "notification.daily_digest_sent")
+      .contains("after_data", { delivery_key: input.idempotencyKey })
+      .limit(1).maybeSingle();
+    if (error) throw error;
+    if (receipt) {
+      logDigest("info", "digest_already_sent", { messageId: input.messageId, userId: input.userId });
+      return { emailMessageId: typeof receipt.after_data?.smtp_message_id === "string" ? receipt.after_data.smtp_message_id : null, alreadySent: true };
+    }
+  }
+
   const { data: organization, error: organizationError } = await admin
     .from("organizations")
     .select("name")
@@ -69,34 +83,23 @@ export async function deliverDailyDigest(input: DeliverDailyDigestInput) {
     pendingUrl: `${productionUrl}/protected/pakbonnen?status=pending`,
   });
 
-  logDigest("info", "resend_request_started", {
+  logDigest("info", "smtp_request_started", {
     messageId: input.messageId,
     mode: input.mode,
     userId: input.userId,
     scheduledDate: input.scheduledDate,
     sendTime: input.sendTime,
   });
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": input.idempotencyKey,
-    },
-    body: JSON.stringify({
-      from: process.env.EMAIL_FROM || DEFAULT_EMAIL_FROM,
-      to: [recipient],
-      subject: input.mode === "manual" ? `[TEST] ${email.subject}` : email.subject,
-      html: email.html,
-      text: email.text,
-    }),
+  const { emailMessageId } = await sendSmtpEmail({
+    to: recipient,
+    subject: input.mode === "manual" ? `[TEST] ${email.subject}` : email.subject,
+    html: email.html,
+    text: email.text,
+    deliveryKey: input.idempotencyKey,
   });
-  const responseBody = await response.json().catch(() => null) as { id?: string; message?: string } | null;
-  if (!response.ok) throw new Error(`Resend returned ${response.status}: ${responseBody?.message || "onbekende fout"}`);
-  const resendMessageId = responseBody?.id || null;
-  logDigest("info", "resend_request_accepted", {
+  logDigest("info", "smtp_request_accepted", {
     messageId: input.messageId,
-    resendMessageId,
+    emailMessageId,
     mode: input.mode,
     userId: input.userId,
     scheduledDate: input.scheduledDate,
@@ -109,7 +112,8 @@ export async function deliverDailyDigest(input: DeliverDailyDigestInput) {
     .update({ last_sent_at: now })
     .eq("user_id", input.userId)
     .eq("organization_id", input.organizationId);
-  if (updateError) throw updateError;
+  // SMTP has already accepted the message. A bookkeeping failure must not trigger another send.
+  if (updateError) logDigest("warning", "digest_last_sent_update_failed", { messageId: input.messageId, emailMessageId, userId: input.userId, error: updateError.message });
 
   const { error: auditError } = await admin.from("audit_logs").insert({
     organization_id: input.organizationId,
@@ -121,7 +125,9 @@ export async function deliverDailyDigest(input: DeliverDailyDigestInput) {
       date: day.dateKey,
       send_time: input.sendTime,
       recipient,
-      resend_message_id: resendMessageId,
+      smtp_message_id: emailMessageId,
+      delivery_key: input.idempotencyKey,
+      provider: "smtp",
       mode: input.mode,
       incoming,
       processed,
@@ -133,11 +139,11 @@ export async function deliverDailyDigest(input: DeliverDailyDigestInput) {
   if (auditError) {
     logDigest("warning", "digest_audit_failed", {
       messageId: input.messageId,
-      resendMessageId,
+      emailMessageId,
       userId: input.userId,
       error: auditError.message,
     });
   }
 
-  return { resendMessageId, incoming, processed, approved, rejected, pending };
+  return { emailMessageId, incoming, processed, approved, rejected, pending };
 }

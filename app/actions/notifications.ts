@@ -73,7 +73,7 @@ export async function sendTestDigestNow(
     revalidatePath("/protected/notificaties");
     return {
       status: "success",
-      message: `Testmail naar ${recipientEmail} is door Resend geaccepteerd${result.resendMessageId ? ` (bericht-ID ${result.resendMessageId})` : ""}.`,
+      message: `Testmail naar ${recipientEmail} is door de SMTP-server geaccepteerd${result.emailMessageId ? ` (bericht-ID ${result.emailMessageId})` : ""}.`,
     };
   } catch (error) {
     console.error("manual notification test failed", error);
