@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import nodemailer from "nodemailer";
 
 type SmtpEnvironment = Record<string, string | undefined>;
 
@@ -35,6 +34,8 @@ export async function sendSmtpEmail(input: { to: string; subject: string; text: 
   if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(input.to)) throw new Error("Het e-mailadres van de ontvanger is ongeldig.");
   const domain = config.fromAddress.split("@")[1];
   const messageId = `<${createHash("sha256").update(input.deliveryKey).digest("hex")}@${domain}>`;
+  // Checking SMTP configuration while rendering a page must not load the mail transport.
+  const { default: nodemailer } = await import("nodemailer");
   const transport = nodemailer.createTransport({
     host: config.host,
     port: config.port,
