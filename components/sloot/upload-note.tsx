@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Camera, FileText, LoaderCircle, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { optimizeUploadImage } from "@/lib/notes/optimize-upload-image";
 
 type Branch = { id: string; name: string };
 
@@ -18,17 +19,20 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
   const router = useRouter();
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const preparedImages = useRef(new WeakSet<File>());
   const [files, setFiles] = useState<File[]>([]);
   const [branchId, setBranchId] = useState(branches[0]?.id || "");
-  const [state, setState] = useState<"idle" | "uploading" | "queued">("idle");
+  const [state, setState] = useState<"idle" | "preparing" | "uploading" | "queued">("idle");
+  const [preparationMessage, setPreparationMessage] = useState("");
   const [error, setError] = useState("");
   const [uploadingPage, setUploadingPage] = useState(0);
   const [uploadedPages, setUploadedPages] = useState(0);
   const [draftNoteId, setDraftNoteId] = useState("");
-  const selectionLocked = state === "uploading" || uploadedPages > 0;
+  const selectionLocked = state !== "idle" || uploadedPages > 0;
 
   function addFiles(selected: File[]) {
     setError("");
+    setPreparationMessage("");
     const next = [...files, ...selected];
     if (next.length > maxPages) {
       setError(`Selecteer maximaal ${maxPages} pagina's per pakbon.`);
@@ -52,18 +56,38 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!files.length || !branchId) return;
+    if (!files.length || !branchId || state !== "idle") return;
     setError("");
+    setPreparationMessage("");
+    setState("preparing");
+    const preparedFiles = [...files];
+    let keptOriginal = false;
+    // Work sequentially to limit memory use on phones. Uploaded pages are left
+    // untouched when a partially completed upload is resumed.
+    for (let index = uploadedPages; index < preparedFiles.length; index += 1) {
+      setUploadingPage(index + 1);
+      if (preparedImages.current.has(preparedFiles[index])) continue;
+      const prepared = await optimizeUploadImage(preparedFiles[index]);
+      preparedFiles[index] = prepared.file;
+      preparedImages.current.add(prepared.file);
+      keptOriginal ||= Boolean(prepared.warning);
+    }
+    const originalBytes = files.reduce((total, file) => total + file.size, 0);
+    const preparedBytes = preparedFiles.reduce((total, file) => total + file.size, 0);
+    const savings = originalBytes > preparedBytes
+      ? `Upload verkleind van ${formatSize(originalBytes)} naar ${formatSize(preparedBytes)}.` : "";
+    setPreparationMessage([savings, keptOriginal ? "Een foto kon niet worden verkleind en wordt in oorspronkelijke kwaliteit opgeslagen." : ""].filter(Boolean).join(" "));
+    setFiles(preparedFiles);
     setState("uploading");
     let noteId = draftNoteId;
 
-    for (let index = uploadedPages; index < files.length; index += 1) {
+    for (let index = uploadedPages; index < preparedFiles.length; index += 1) {
       setUploadingPage(index + 1);
       const form = new FormData();
-      form.set("file", files[index]);
+      form.set("file", preparedFiles[index]);
       form.set("branch_id", branchId);
       form.set("page_number", String(index + 1));
-      form.set("page_count", String(files.length));
+      form.set("page_count", String(preparedFiles.length));
       if (noteId) form.set("note_id", noteId);
 
       let upload: Response;
@@ -81,7 +105,7 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
         setDraftNoteId(uploaded.id);
       }
       if (!upload.ok) {
-        if (uploaded.id && index === files.length - 1) {
+        if (uploaded.id && index === preparedFiles.length - 1) {
           setFiles([]);
           setDraftNoteId("");
           setUploadedPages(0);
@@ -127,8 +151,9 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
       </li>)}</ol>
     </div> : null}
 
+    {preparationMessage && <p role="status" className="mt-3 text-sm text-white/80">{preparationMessage}</p>}
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-500/20 p-3 text-sm">{error}</p>}
     {state === "queued" && <p className="mt-3 rounded-lg bg-white/10 p-3 text-sm">Alle pagina&apos;s zijn opgeslagen. De AI verwerkt de pakbon nu op de achtergrond.</p>}
-    <button disabled={!files.length || !branchId || state !== "idle"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 font-medium text-[#173b2b] disabled:opacity-50">{state === "idle" ? (uploadedPages ? "Upload hervatten" : `${files.length > 1 ? "Pagina's" : "Pakbon"} uploaden`) : state === "queued" ? "In wachtrij geplaatst" : <><LoaderCircle className="animate-spin" size={18}/>Pagina {uploadingPage} van {files.length} uploaden…</>}</button>
+    <button disabled={!files.length || !branchId || state !== "idle"} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 font-medium text-[#173b2b] disabled:opacity-50">{state === "idle" ? (uploadedPages ? "Upload hervatten" : `${files.length > 1 ? "Pagina's" : "Pakbon"} uploaden`) : state === "queued" ? "In wachtrij geplaatst" : <><LoaderCircle className="animate-spin" size={18}/>Pagina {uploadingPage} van {files.length} {state === "preparing" ? "voorbereiden" : "uploaden"}…</>}</button>
   </form>;
 }
