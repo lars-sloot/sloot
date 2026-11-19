@@ -29,9 +29,13 @@ function branchName(branches: unknown) {
   if (branches && typeof branches === "object" && "name" in branches) return String(branches.name);
   return "Onbekend";
 }
-
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] || "" : value || "";
+}
+
+function dateParam(value: string | string[] | undefined) {
+  const date = firstParam(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
 }
 
 function formatDate(date: string | null) {
@@ -44,7 +48,7 @@ function formatUploadedAt(date: string) {
 }
 
 type NotesPageProps = {
-  searchParams: Promise<{ q?: string | string[]; branch?: string | string[]; status?: string | string[]; note?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; branch?: string | string[]; status?: string | string[]; date_from?: string | string[]; date_to?: string | string[]; note?: string | string[] }>;
 };
 
 export default async function NotesPage({ searchParams }: NotesPageProps) {
@@ -52,6 +56,8 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const query = firstParam(params.q).trim();
   const selectedBranch = firstParam(params.branch);
   const selectedStatus = firstParam(params.status);
+  const dateFrom = dateParam(params.date_from);
+  const dateTo = dateParam(params.date_to);
   const selectedNoteId = firstParam(params.note);
   const supabase = await createClient();
   const claims = await getViewerClaims();
@@ -84,6 +90,8 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   const filteredNotes = safeNotes.filter((note) => {
     if (selectedBranch && note.branch_id !== selectedBranch) return false;
     if (selectedStatus && note.status !== selectedStatus) return false;
+    if (dateFrom && (!note.delivery_date || note.delivery_date < dateFrom)) return false;
+    if (dateTo && (!note.delivery_date || note.delivery_date > dateTo)) return false;
     if (!normalizedQuery) return true;
     const searchable = [note.supplier, note.delivery_number, branchName(note.branches), note.article_summary, ...(searchableItems.get(note.id) ?? [])].filter(Boolean).join(" ").toLocaleLowerCase("nl");
     return searchable.includes(normalizedQuery);
@@ -92,6 +100,8 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
   if (query) filterParams.set("q", query);
   if (selectedBranch) filterParams.set("branch", selectedBranch);
   if (selectedStatus) filterParams.set("status", selectedStatus);
+  if (dateFrom) filterParams.set("date_from", dateFrom);
+  if (dateTo) filterParams.set("date_to", dateTo);
   const closeHref = `/protected/pakbonnen${filterParams.size ? `?${filterParams}` : ""}`;
   let photoPages: Array<{ id: string; pageNumber: number; storagePath: string; mimeType: string; url: string | null }> = [];
   if (selectedNote && !selectedNote.deleted_at) {
@@ -122,11 +132,14 @@ export default async function NotesPage({ searchParams }: NotesPageProps) {
       <Link href="/protected#nieuwe-pakbon" className="inline-flex items-center gap-2 rounded-xl bg-[#173b2b] px-5 py-3 text-sm font-semibold text-white shadow-sm"><Camera size={17}/>Nieuwe pakbon</Link>
     </div>
 
-    <div className="mt-7 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <Form key={`${query}:${selectedBranch}:${selectedStatus}`} action="/protected/pakbonnen" className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
-        <label className="relative min-w-0 flex-1 lg:max-w-md"><span className="sr-only">Zoeken</span><Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#718078]" size={18}/><input name="q" defaultValue={query} placeholder="Zoek leverancier, nummer, filiaal of artikel" className="w-full rounded-xl border border-[#d6ddd7] bg-white py-3 pl-10 pr-4 text-base md:text-sm outline-none focus:border-[#173b2b]"/></label>
-        <label><span className="sr-only">Filiaal</span><select name="branch" defaultValue={selectedBranch} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-base md:text-sm outline-none focus:border-[#173b2b]"><option value="">Alle filialen</option>{editableBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+    <div className="mt-7 flex flex-col gap-4">
+      <Form key={`${query}:${selectedBranch}:${selectedStatus}:${dateFrom}:${dateTo}`} action="/protected/pakbonnen" className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <label className="relative min-w-0 flex-1 sm:basis-full xl:basis-72"><span className="sr-only">Zoeken</span><Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#718078]" size={18}/><input name="q" defaultValue={query} placeholder="Zoek leverancier, nummer, filiaal of artikel" className="w-full rounded-xl border border-[#d6ddd7] bg-white py-3 pl-10 pr-4 text-base outline-none focus:border-[#173b2b] md:text-sm"/></label>
+        <label className="sm:min-w-40"><span className="mb-1 block text-xs font-medium text-[#667168]">Filiaal</span><select name="branch" defaultValue={selectedBranch} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-base outline-none focus:border-[#173b2b] md:text-sm"><option value="">Alle filialen</option>{editableBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+        <label className="sm:min-w-40"><span className="mb-1 block text-xs font-medium text-[#667168]">Datum van</span><input type="date" name="date_from" defaultValue={dateFrom} max={dateTo || undefined} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-base outline-none focus:border-[#173b2b] md:text-sm"/></label>
+        <label className="sm:min-w-40"><span className="mb-1 block text-xs font-medium text-[#667168]">Datum tot</span><input type="date" name="date_to" defaultValue={dateTo} min={dateFrom || undefined} className="w-full rounded-xl border border-[#d6ddd7] bg-white px-4 py-3 text-base outline-none focus:border-[#173b2b] md:text-sm"/></label>
         {selectedStatus && <input type="hidden" name="status" value={selectedStatus}/>}<button className="rounded-xl border border-[#d6ddd7] bg-white px-5 py-3 text-sm font-medium text-[#33443a] hover:bg-[#f4f6f4]">Zoeken</button>
+        {(query || selectedBranch || dateFrom || dateTo) && <Link href={hrefWith({ q: null, branch: null, date_from: null, date_to: null, note: null })} className="px-2 py-3 text-sm font-medium text-[#526057] underline underline-offset-4">Filters wissen</Link>}
       </Form>
       <nav aria-label="Filter op status" className="flex flex-wrap gap-2">{statusFilters.map(([value, text]) => <Link key={value || "all"} href={hrefWith({ status: value || null, note: null })} className={`rounded-full border px-4 py-2 text-sm font-medium ${selectedStatus === value ? "border-[#173b2b] bg-[#173b2b] text-white" : "border-[#d6ddd7] bg-white text-[#667168] hover:bg-[#f4f6f4]"}`}>{text}</Link>)}</nav>
     </div>
