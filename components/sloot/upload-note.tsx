@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Camera, FileText, LoaderCircle, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { optimizeUploadImage } from "@/lib/notes/optimize-upload-image";
 
 type Branch = { id: string; name: string };
@@ -10,6 +11,36 @@ type Branch = { id: string; name: string };
 const maxPages = 10;
 const maxFileBytes = 15 * 1024 * 1024;
 const maxTotalBytes = 50 * 1024 * 1024;
+const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+
+type UploadResponse = {
+  id?: string;
+  token?: string;
+  storage_path?: string;
+  mime_type?: string;
+  already_uploaded?: boolean;
+  queued?: boolean;
+  error?: string;
+};
+
+function fileType(file: File) {
+  const normalized = file.type.toLowerCase() === "image/jpg" ? "image/jpeg" : file.type.toLowerCase();
+  if (allowedTypes.has(normalized)) return normalized;
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  return ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", pdf: "application/pdf" } as Record<string, string>)[extension || ""] || "";
+}
+
+function canPrepareFile(file: File) {
+  return Boolean(fileType(file)) || /^image\/(heic|heif)$/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+}
+
+async function readUploadResponse(response: Response) {
+  try {
+    return await response.json() as UploadResponse;
+  } catch {
+    return { error: `De server gaf een onverwacht antwoord (${response.status}).` };
+  }
+}
 
 function formatSize(bytes: number) {
   return new Intl.NumberFormat("nl-NL", { maximumFractionDigits: 1 }).format(bytes / 1024 / 1024) + " MB";
@@ -17,6 +48,7 @@ function formatSize(bytes: number) {
 
 export function UploadNote({ branches }: { branches: Branch[] }) {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preparedImages = useRef(new WeakSet<File>());
@@ -42,6 +74,10 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
       setError("Iedere pagina mag maximaal 15 MB zijn.");
       return;
     }
+    if (selected.some((file) => !canPrepareFile(file))) {
+      setError("Gebruik JPG, PNG, WEBP, HEIC of PDF.");
+      return;
+    }
     if (next.reduce((total, file) => total + file.size, 0) > maxTotalBytes) {
       setError("Alle pagina's samen mogen maximaal 50 MB zijn.");
       return;
@@ -62,8 +98,6 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
     setState("preparing");
     const preparedFiles = [...files];
     let keptOriginal = false;
-    // Work sequentially to limit memory use on phones. Uploaded pages are left
-    // untouched when a partially completed upload is resumed.
     for (let index = uploadedPages; index < preparedFiles.length; index += 1) {
       setUploadingPage(index + 1);
       if (preparedImages.current.has(preparedFiles[index])) continue;
@@ -71,6 +105,13 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
       preparedFiles[index] = prepared.file;
       preparedImages.current.add(prepared.file);
       keptOriginal ||= Boolean(prepared.warning);
+    }
+    const unsupportedIndex = preparedFiles.findIndex((file) => !fileType(file));
+    if (unsupportedIndex >= 0) {
+      setFiles(preparedFiles);
+      setState("idle");
+      setError(`Pagina ${unsupportedIndex + 1} is een HEIC-bestand dat deze browser niet naar JPG of WEBP kon omzetten. Kies deze foto als JPG of maak hem opnieuw via de cameraknop.`);
+      return;
     }
     const originalBytes = files.reduce((total, file) => total + file.size, 0);
     const preparedBytes = preparedFiles.reduce((total, file) => total + file.size, 0);
@@ -83,40 +124,88 @@ export function UploadNote({ branches }: { branches: Branch[] }) {
 
     for (let index = uploadedPages; index < preparedFiles.length; index += 1) {
       setUploadingPage(index + 1);
-      const form = new FormData();
-      form.set("file", preparedFiles[index]);
-      form.set("branch_id", branchId);
-      form.set("page_number", String(index + 1));
-      form.set("page_count", String(preparedFiles.length));
-      if (noteId) form.set("note_id", noteId);
+      const file = preparedFiles[index];
+      const mimeType = fileType(file);
+      const requestData = {
+        branch_id: branchId,
+        note_id: noteId || undefined,
+        page_number: index + 1,
+        page_count: preparedFiles.length,
+        file_name: file.name,
+        mime_type: mimeType,
+        size_bytes: file.size,
+      };
 
-      let upload: Response;
-      let uploaded: { id?: string; queued?: boolean; error?: string };
+      let preparedResponse: Response;
+      let prepared: UploadResponse;
       try {
-        upload = await fetch("/api/delivery-notes", { method: "POST", body: form });
-        uploaded = await upload.json();
+        preparedResponse = await fetch("/api/delivery-notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "prepare", ...requestData }),
+        });
+        prepared = await readUploadResponse(preparedResponse);
       } catch {
         setState("idle");
-        setError(`Pagina ${index + 1} kon niet worden verstuurd. Controleer de internetverbinding en hervat de upload.`);
+        setError(`Pagina ${index + 1} kon niet worden voorbereid. Controleer de internetverbinding en hervat de upload.`);
         return;
       }
-      if (uploaded.id) {
-        noteId = uploaded.id;
-        setDraftNoteId(uploaded.id);
+      if (prepared.id) {
+        noteId = prepared.id;
+        setDraftNoteId(prepared.id);
       }
-      if (!upload.ok) {
-        if (uploaded.id && index === preparedFiles.length - 1) {
+      if (!preparedResponse.ok || !prepared.id || !prepared.storage_path) {
+        setState("idle");
+        setError(`Pagina ${index + 1} kon niet worden voorbereid. ${prepared.error || "Probeer het opnieuw."}`.trim());
+        return;
+      }
+
+      if (!prepared.already_uploaded) {
+        if (!prepared.token) {
+          setState("idle");
+          setError(`Pagina ${index + 1} kon niet worden geüpload: de beveiligde uploadsleutel ontbreekt.`);
+          return;
+        }
+        const { error: storageError } = await supabase.storage.from("delivery-notes").uploadToSignedUrl(
+          prepared.storage_path,
+          prepared.token,
+          file,
+          { contentType: prepared.mime_type || mimeType, upsert: true },
+        );
+        if (storageError) {
+          setState("idle");
+          setError(`Pagina ${index + 1} kon niet naar de opslag worden geüpload. Probeer de upload opnieuw. ${storageError.message}`);
+          return;
+        }
+      }
+
+      let completedResponse: Response;
+      let completed: UploadResponse;
+      try {
+        completedResponse = await fetch("/api/delivery-notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "complete", ...requestData, note_id: noteId, storage_path: prepared.storage_path }),
+        });
+        completed = await readUploadResponse(completedResponse);
+      } catch {
+        setState("idle");
+        setError(`Pagina ${index + 1} is verstuurd, maar kon niet worden bevestigd. Kies 'Upload hervatten' om verder te gaan.`);
+        return;
+      }
+      if (!completedResponse.ok) {
+        if (completed.id && index === preparedFiles.length - 1) {
           setFiles([]);
           setDraftNoteId("");
           setUploadedPages(0);
           setUploadingPage(0);
           setState("idle");
-          setError(uploaded.error || "De pakbon is opgeslagen, maar de AI-verwerking kon niet worden gestart.");
+          setError(completed.error || "De pakbon is opgeslagen, maar de AI-verwerking kon niet worden gestart.");
           router.refresh();
           return;
         }
         setState("idle");
-        setError(`Pagina ${index + 1} kon niet worden geüpload. Probeer de upload opnieuw om verder te gaan. ${uploaded.error || ""}`.trim());
+        setError(`Pagina ${index + 1} kon niet worden bevestigd. Probeer de upload opnieuw. ${completed.error || ""}`.trim());
         return;
       }
       setUploadedPages(index + 1);
