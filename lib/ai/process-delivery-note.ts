@@ -63,7 +63,7 @@ export async function processDeliveryNote(noteId: string, actorId: string) {
     const inputContent: Array<Record<string, unknown>> = [
       { type: "input_text", text: "Extraheer de pakbongegevens en alle artikelregels uit alle pagina's. De bestanden horen in paginavolgorde bij één pakbon." },
       ...signedPages.map((page) => page.mime_type === "application/pdf"
-        ? { type: "input_file", file_url: page.signedUrl, filename: `pakbon-pagina-${page.page_number}.pdf`, detail: "high" }
+        ? { type: "input_file", file_url: page.signedUrl }
         : { type: "input_image", image_url: page.signedUrl, detail: "high" }),
     ];
 
