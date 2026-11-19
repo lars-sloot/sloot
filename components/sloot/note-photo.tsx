@@ -23,6 +23,10 @@ function isPreviewableImage(page: NotePage) {
     || /\.(jpe?g|png|webp)$/i.test(page.storagePath);
 }
 
+function isPdf(page: NotePage) {
+  return page.mimeType === "application/pdf" || /\.pdf$/i.test(page.storagePath);
+}
+
 export function NotePhoto({ pages, alt, deleted }: NotePhotoProps) {
   const [open, setOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -59,6 +63,7 @@ export function NotePhoto({ pages, alt, deleted }: NotePhotoProps) {
   }
 
   const canPreview = isPreviewableImage(selectedPage);
+  const canPreviewPdf = isPdf(selectedPage);
 
   return (
     <div>
@@ -71,6 +76,20 @@ export function NotePhoto({ pages, alt, deleted }: NotePhotoProps) {
           <Image src={selectedPage.url} alt={`${alt}, pagina ${selectedPage.pageNumber}`} fill sizes="(max-width: 768px) 100vw, 620px" className="object-contain transition duration-200 group-hover:scale-[1.01]"/>
           <span className="absolute bottom-3 right-3 flex items-center gap-2 rounded-lg bg-black/70 px-3 py-2 text-xs font-medium text-white"><Maximize2 size={14}/>Vergroten</span>
         </button>
+      ) : canPreviewPdf ? (
+        <div>
+          <div className="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-[#d6ddd7] bg-[#eef1ed]">
+            <iframe
+              src={`${selectedPage.url}#view=FitH`}
+              title={`${alt}, pagina ${selectedPage.pageNumber}`}
+              className="h-full w-full bg-white"
+              loading="lazy"
+            />
+          </div>
+          <a href={selectedPage.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#d6ddd7] bg-white px-4 py-2.5 text-sm font-medium text-[#173b2b] hover:bg-[#f2f5f2]">
+            Pdf in nieuw tabblad openen <ExternalLink size={15}/>
+          </a>
+        </div>
       ) : (
         <a href={selectedPage.url} target="_blank" rel="noreferrer" className="grid aspect-[3/4] place-items-center rounded-2xl border border-[#d6ddd7] bg-[#f7f8f6] p-6 text-center text-sm font-medium text-[#173b2b] hover:bg-[#eef2ee]">
           <span><FileText className="mx-auto mb-3" size={30}/><span className="flex items-center gap-2">Pagina {selectedPage.pageNumber} openen <ExternalLink size={15}/></span></span>
